@@ -6,41 +6,25 @@ CI role needs no CloudFormation/CDK permissions (see the monorepo CI/CD Contract
 
 ## What this stack provisions
 
-- **Two private S3 buckets** — `entries` (individual post pages, long TTL) and
-  `shell` (home, listings, `sitemap.xml`/`rss.xml`/`robots.txt`, shared assets,
-  short TTL). Both fully private; names are auto-generated, never hardcoded.
-- **One Origin Access Control (OAC) per bucket** — the only principal granted
-  read access to each bucket is the distribution.
-- **One CloudFront distribution with two behaviors** — default behavior serves
-  the `shell` origin; one additional behavior serves the `entries` origin.
-- **A root-redirect CloudFront Function** on the default (shell) behavior: the
-  exact URI `/` returns a `301` to `/{DEFAULT_LANG}/`. `DEFAULT_LANG` is baked in
-  at synth time; the redirect never depends on any per-request signal.
+- **One private S3 bucket** holding the whole built site (post pages, home,
+  listings, `sitemap.xml`/`rss.xml`/`robots.txt`, shared assets). Fully private;
+  the name is auto-generated (never hardcoded) and prefixed with the stack name.
+- **One Origin Access Control (OAC)** — the only principal granted read access to
+  the bucket is the distribution.
+- **One CloudFront distribution with a single behavior** over the bucket. TTL
+  differentiation is done with per-object `Cache-Control` at publish time
+  (immutable assets long, HTML short), not a bucket split.
+- **An edge CloudFront Function** on the behavior that (a) returns a `301` from
+  the exact URI `/` to `/{DEFAULT_LANG}/` (baked in at synth time, never from a
+  per-request signal), and (b) rewrites directory-style URIs to append
+  `index.html` so clean URLs (`/es/`, `/en/how-black-holes-form`) resolve against
+  the S3 REST origin — which does not append `index.html` on its own.
 - **DNS alias records** (A + AAAA) for the site domain, in the existing Route 53
   hosted zone (referenced, never created).
 
 Everything deploys in **us-east-1** — CloudFront requires its ACM certificate
 there, and none of the other resources are region-sensitive, so a single region
 avoids any cross-region reference.
-
-## Stage-1 design note: behavior routing (provisional)
-
-The blog spec requires the root-redirect function on the **shell** behavior,
-matching the exact `/`. For a viewer request to `/` to reach that function, the
-behavior serving `/` must be the **default** behavior — so **shell is the default
-behavior** and **entries is the additional behavior**.
-
-The precise entries/shell path partition depends on the site's route shapes and
-`supportedLangs`, which do not exist until **Stage 3**. Stage 1 therefore wires
-exactly the two behaviors the deliverable calls for, using a **provisional**
-entries path pattern derived from `DEFAULT_LANG` (`/{DEFAULT_LANG}/*`). Stage 3
-finalizes this — adding per-language patterns and reserved-segment (`categoria`,
-`tag`, `autor`, `historico`, `rss`) shell overrides. See the Decisions Log in
-`blog/spec.md`.
-
-Sub-path index resolution (appending `index.html` to directory-style URLs such
-as `/es/`) is likewise a Stage-3 concern; Stage 1 ships only the root-redirect
-function.
 
 ## Prerequisites
 
@@ -91,23 +75,25 @@ Each stack gets its own buckets, distribution, and DNS records, and is tagged
 between them. `npx cdk ls` prints the current stack's name; `cdk` commands act on
 the stack defined by the current `.env`.
 
-## Post-deploy verification (Stage 1)
+## Post-deploy verification
 
-1. Confirm both buckets, both OACs, the distribution, and the root-redirect
-   function exist.
+1. Confirm the bucket, the OAC, the distribution, and the edge function exist.
 2. Manually verify the redirect:
    ```bash
    curl -sI https://<site-domain>/ | grep -i -E 'HTTP/|location'
    ```
    Expect `HTTP/2 301` and `location: /<DEFAULT_LANG>/`.
-3. Confirm deep links and root-level static file paths are **not** redirected
-   (they will 403/404 until content is deployed in a later stage, but they must
-   not return a 301).
+3. Once content is published, confirm clean URLs resolve (the edge function
+   appends `index.html`):
+   ```bash
+   curl -sI https://<site-domain>/es/ | grep -i 'HTTP/'          # 200
+   curl -sI https://<site-domain>/en/how-black-holes-form | grep -i 'HTTP/'   # 200
+   ```
 
 ## Outputs
 
-After deploy, the stack prints `EntriesBucketName`, `ShellBucketName`,
-`DistributionId`, `DistributionDomainName`, and `SiteDomain`. The bucket names
-and distribution id are what the content pipeline consumes as GitHub Actions
-secrets (`ENTRIES_BUCKET_NAME`, `SHELL_BUCKET_NAME`,
-`CLOUDFRONT_DISTRIBUTION_ID`) — never hardcoded in the workflow.
+After deploy, the stack prints `SiteBucketName`, `DistributionId`,
+`DistributionDomainName`, and `SiteDomain`. The bucket name and distribution id
+are what the content pipeline consumes as GitHub Actions secrets
+(`SITE_BUCKET_NAME`, `CLOUDFRONT_DISTRIBUTION_ID`) — never hardcoded in the
+workflow.

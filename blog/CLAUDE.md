@@ -77,5 +77,8 @@ spec wins over the blog spec.
 - Content gate: `node scripts/validate-integrity.mjs` (runs standalone).
 - Site: `npx astro sync && npx astro build`; inspect `dist/` to confirm Gherkin expectations.
 - Infra: `cd blog/infra && npm run typecheck && npm run synth`. `cdk deploy` is developer-only.
-- Provisional item to reconcile before relying on production routing: the `entries`/`shell`
-  CloudFront path partition and the workflow's S3 split.
+- Hosting is a **single** S3 bucket + one CloudFront behavior; an edge function does the root
+  redirect **and** appends `index.html` for directory URLs. TTL differentiation is per-object
+  `Cache-Control` at publish time (no bucket split). The workflow does one `aws s3 sync` to
+  `SITE_BUCKET_NAME`. (The earlier two-bucket `entries`/`shell` design was superseded — see the
+  Decisions Log.)

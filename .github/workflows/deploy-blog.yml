@@ -22,10 +22,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      # Non-sensitive; a repository variable, not a secret.
       PUBLIC_SITE_URL: ${{ secrets.PUBLIC_SITE_URL }}
-      ENTRIES_BUCKET_NAME: ${{ secrets.ENTRIES_BUCKET_NAME }}
-      SHELL_BUCKET_NAME: ${{ secrets.SHELL_BUCKET_NAME }}
+      SITE_BUCKET_NAME: ${{ secrets.SITE_BUCKET_NAME }}
       CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -78,25 +76,19 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Steps 5 & 6 — split the build output between the two buckets.
-      # Post pages ("{lang}/{slug}/") go to entries; everything else to shell.
-      # NOTE: this split must stay aligned with the CloudFront behavior path
-      # partition, which is provisional until the entries/shell routing is
-      # finalized (see Stage 1 note in blog/infra/readme.md).
+      # Steps 5 & 6 — sync the whole build output to the single site bucket.
+      # TTL differentiation is done with Cache-Control (CloudFront honors it):
+      # hashed immutable assets get a long cache, HTML pages a short one. Two
+      # scoped `--delete` passes together prune every removed file.
       - name: Sync to S3
         run: |
           set -euo pipefail
-          node scripts/list-entry-paths.mjs > /tmp/entry-prefixes.txt
-
-          # entries bucket: only the post pages
-          ENTRY_ARGS=(--exclude "*")
-          while read -r prefix; do ENTRY_ARGS+=(--include "$prefix/*"); done < /tmp/entry-prefixes.txt
-          aws s3 sync dist/ "s3://${ENTRIES_BUCKET_NAME}/" "${ENTRY_ARGS[@]}"
-
-          # shell bucket: everything except the post pages
-          SHELL_ARGS=(--delete)
-          while read -r prefix; do SHELL_ARGS+=(--exclude "$prefix/*"); done < /tmp/entry-prefixes.txt
-          aws s3 sync dist/ "s3://${SHELL_BUCKET_NAME}/" "${SHELL_ARGS[@]}"
+          # Non-HTML (hashed assets, sitemap/rss/robots, images): long, immutable cache.
+          aws s3 sync dist/ "s3://${SITE_BUCKET_NAME}/" --delete \
+            --exclude "*.html" --cache-control "public,max-age=31536000,immutable"
+          # HTML pages: short cache so they revalidate quickly after a publish.
+          aws s3 sync dist/ "s3://${SITE_BUCKET_NAME}/" --delete \
+            --exclude "*" --include "*.html" --cache-control "public,max-age=60,s-maxage=300"
 
       # Step 7 — invalidation limited to the paths identified in step 3
       - name: Invalidate CloudFront

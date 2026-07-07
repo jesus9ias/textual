@@ -82,21 +82,17 @@ Two independent paths, by design:
 
 `.github/workflows/deploy-blog.yml` (at the repo root) runs on push to `main` under the path
 filter `blog/frontend/**`. Steps: `astro sync` → `validate-integrity` → `detect-changed-views`
-→ `astro build` → S3 sync (post pages → `entries`, everything else → `shell`) → scoped
-CloudFront invalidation.
+→ `astro build` → S3 sync to the single site bucket (non-HTML long/immutable `Cache-Control`, HTML
+short) → scoped CloudFront invalidation.
 
-Configure in the GitHub repository:
+Configure in the GitHub repository (as secrets):
 
-| Kind | Name | Source |
-|---|---|---|
-| Secret | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | IAM user scoped to S3 (both buckets) + `cloudfront:CreateInvalidation` only |
-| Secret | `ENTRIES_BUCKET_NAME` / `SHELL_BUCKET_NAME` | infra stack outputs |
-| Secret | `CLOUDFRONT_DISTRIBUTION_ID` | infra stack output |
-| Variable | `PUBLIC_SITE_URL` | absolute public site URL (non-sensitive) |
-
-> Provisional item: the CloudFront `entries`/`shell` behavior path partition and the workflow's
-> S3 split are provisional until the routing is finalized (see the Decisions Log and
-> `infra/readme.md`). Verify a real test push before relying on production routing.
+| Name | Source |
+|---|---|
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | IAM user scoped to S3 (the site bucket) + `cloudfront:CreateInvalidation` only |
+| `SITE_BUCKET_NAME` | infra stack output (`SiteBucketName`) |
+| `CLOUDFRONT_DISTRIBUTION_ID` | infra stack output |
+| `PUBLIC_SITE_URL` | absolute public site URL |
 
 ## Tests and their definitions
 

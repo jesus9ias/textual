@@ -60,15 +60,11 @@ export class TextualStack extends Stack {
       target: recordTarget,
     });
 
-    // Outputs consumed to populate GitHub Actions secrets (bucket names,
+    // Outputs consumed to populate GitHub Actions secrets (bucket name,
     // distribution id) — never hardcoded in the workflow.
-    new CfnOutput(this, OUTPUT_KEYS.entriesBucketName, {
-      value: site.entriesBucket.bucketName,
-      description: 'S3 bucket for individual post pages (entries).',
-    });
-    new CfnOutput(this, OUTPUT_KEYS.shellBucketName, {
-      value: site.shellBucket.bucketName,
-      description: 'S3 bucket for home, listings, sitemap/rss/robots and shared assets (shell).',
+    new CfnOutput(this, OUTPUT_KEYS.siteBucketName, {
+      value: site.bucket.bucketName,
+      description: 'S3 bucket holding the whole built site.',
     });
     new CfnOutput(this, OUTPUT_KEYS.distributionId, {
       value: site.distribution.distributionId,
