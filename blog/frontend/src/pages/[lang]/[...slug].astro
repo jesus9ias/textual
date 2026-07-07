@@ -1,0 +1,30 @@
+---
+/**
+ * Post detail page. Generated per language with an explicit `[lang]` prefix —
+ * the default language is not special-cased. The layout is resolved at build
+ * time from the post's `categoryId`: a category-specific layout under the active
+ * template's `layouts/categories/{categoryId}.astro` is used when it exists,
+ * otherwise the generic Post layout. The active template comes from
+ * `PUBLIC_TEMPLATE` (see `lib/template.ts`).
+ */
+import { render } from 'astro:content';
+import { getPublishedPosts } from '../../lib/content';
+import { layout, categoryLayout } from '../../lib/template';
+
+export async function getStaticPaths() {
+  const posts = await getPublishedPosts();
+  return posts.map((post) => ({
+    params: { lang: post.data.lang, slug: post.data.slug },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+
+const Layout = categoryLayout(post.data.categoryId) ?? layout('Post');
+---
+
+<Layout post={post}>
+  <Content />
+</Layout>

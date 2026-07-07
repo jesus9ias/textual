@@ -1,0 +1,114 @@
+name: Deploy blog
+
+# Content pipeline only. This workflow never touches blog/infra (deployed from
+# local via cdk) and therefore needs no CloudFormation/CDK permissions — only
+# scoped S3 (both buckets) + CloudFront (create-invalidation). Path filter keeps
+# it isolated to the blog frontend.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'blog/frontend/**'
+
+concurrency:
+  group: deploy-blog
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: blog/frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      # Non-sensitive; a repository variable, not a secret.
+      PUBLIC_SITE_URL: ${{ secrets.PUBLIC_SITE_URL }}
+      ENTRIES_BUCKET_NAME: ${{ secrets.ENTRIES_BUCKET_NAME }}
+      SHELL_BUCKET_NAME: ${{ secrets.SHELL_BUCKET_NAME }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history is required for git-based change detection
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: blog/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Step 1 — regenerate collection types, validate frontmatter against Zod
+      - name: Astro sync
+        run: npx astro sync
+
+      # Step 2 — referential-integrity gate (fails the build on any violation)
+      - name: Validate content integrity
+        run: node scripts/validate-integrity.mjs
+
+      # Step 3 — compute the minimal invalidation path sets for this push
+      - name: Detect changed views
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            # First deploy on this branch (no prior commit): invalidate everything.
+            echo "entries=" >> "$GITHUB_OUTPUT"
+            echo "shell=/*" >> "$GITHUB_OUTPUT"
+          else
+            RESULT="$(node scripts/detect-changed-views.mjs)"
+            echo "entries=$(echo "$RESULT" | jq -r '.entries | join(" ")')" >> "$GITHUB_OUTPUT"
+            echo "shell=$(echo "$RESULT" | jq -r '.shell | join(" ")')" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Step 4 — build
+      - name: Astro build
+        run: npx astro build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # Steps 5 & 6 — split the build output between the two buckets.
+      # Post pages ("{lang}/{slug}/") go to entries; everything else to shell.
+      # NOTE: this split must stay aligned with the CloudFront behavior path
+      # partition, which is provisional until the entries/shell routing is
+      # finalized (see Stage 1 note in blog/infra/readme.md).
+      - name: Sync to S3
+        run: |
+          set -euo pipefail
+          node scripts/list-entry-paths.mjs > /tmp/entry-prefixes.txt
+
+          # entries bucket: only the post pages
+          ENTRY_ARGS=(--exclude "*")
+          while read -r prefix; do ENTRY_ARGS+=(--include "$prefix/*"); done < /tmp/entry-prefixes.txt
+          aws s3 sync dist/ "s3://${ENTRIES_BUCKET_NAME}/" "${ENTRY_ARGS[@]}"
+
+          # shell bucket: everything except the post pages
+          SHELL_ARGS=(--delete)
+          while read -r prefix; do SHELL_ARGS+=(--exclude "$prefix/*"); done < /tmp/entry-prefixes.txt
+          aws s3 sync dist/ "s3://${SHELL_BUCKET_NAME}/" "${SHELL_ARGS[@]}"
+
+      # Step 7 — invalidation limited to the paths identified in step 3
+      - name: Invalidate CloudFront
+        run: |
+          set -euo pipefail
+          PATHS="${{ steps.changes.outputs.entries }} ${{ steps.changes.outputs.shell }}"
+          TRIMMED="$(echo "$PATHS" | tr -s ' ' | sed 's/^ //;s/ $//')"
+          if [ -z "$TRIMMED" ]; then
+            echo "No changed views detected; skipping invalidation."
+          else
+            # shellcheck disable=SC2086
+            aws cloudfront create-invalidation \
+              --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+              --paths $TRIMMED
+          fi

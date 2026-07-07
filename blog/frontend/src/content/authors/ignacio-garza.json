@@ -1,0 +1,5 @@
+{
+  "es": { "name": "Ignacio Garza", "bio": "Escribe sobre física y matemáticas.", "avatar": "/assets/authors/ignacio.jpg" },
+  "en": { "name": "Ignacio Garza", "bio": "Writes about physics and mathematics.", "avatar": "/assets/authors/ignacio.jpg" },
+  "social": { "github": "ignaciogarza" }
+}

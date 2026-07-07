@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Astro build artifacts
+dist/
+.astro/
+
+# Environment (real values injected at build time)
+.env
+.env.production
+
+# Logs / OS
+*.log
+.DS_Store

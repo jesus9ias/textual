@@ -1,0 +1,9 @@
+# Dependencies
+node_modules/
+
+# Environment (paths to a local blog checkout live here only)
+.env
+
+# Logs / OS
+*.log
+.DS_Store

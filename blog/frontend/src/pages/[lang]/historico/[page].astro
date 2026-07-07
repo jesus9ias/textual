@@ -1,0 +1,68 @@
+---
+/** Paginated archive of every published post, per language. */
+import { supportedLangs } from '../../../lib/site';
+import { getPublishedPostsByLang } from '../../../lib/content';
+import {
+  historicoPath,
+  chunk,
+  pageCount,
+  paginatedLangSwitch,
+  PAGE_SIZE,
+} from '../../../lib/routing.mjs';
+import { t } from '../../../i18n/ui.mjs';
+import { layout, widget } from '../../../lib/template';
+
+const Base = layout('Base');
+const PostList = widget('PostList');
+const Paginator = widget('Paginator');
+
+export async function getStaticPaths() {
+  const postsByLang = {};
+  for (const lang of supportedLangs) postsByLang[lang] = await getPublishedPostsByLang(lang);
+  const pageCountByLang = Object.fromEntries(
+    supportedLangs.map((lang) => [lang, pageCount(postsByLang[lang])]),
+  );
+
+  const paths = [];
+  for (const lang of supportedLangs) {
+    const pages = chunk(postsByLang[lang], PAGE_SIZE);
+    pages.forEach((posts, index) => {
+      const page = index + 1;
+      const langSwitch = paginatedLangSwitch({
+        supportedLangs,
+        page,
+        pageCountByLang,
+        urlFor: (code, p) => historicoPath(code, p),
+      });
+      paths.push({
+        params: { lang, page: String(page) },
+        props: { posts, currentPage: page, totalPages: pages.length, langSwitch },
+      });
+    });
+  }
+  return paths;
+}
+
+const { lang } = Astro.params;
+const { posts, currentPage, totalPages, langSwitch } = Astro.props;
+const prevUrl = currentPage > 1 ? historicoPath(lang, currentPage - 1) : undefined;
+const nextUrl = currentPage < totalPages ? historicoPath(lang, currentPage + 1) : undefined;
+---
+
+<Base
+  lang={lang}
+  title={t(lang, 'navArchive')}
+  description={t(lang, 'navArchive')}
+  canonicalPath={historicoPath(lang, currentPage)}
+  langSwitch={langSwitch}
+>
+  <h1>{t(lang, 'navArchive')}</h1>
+  <PostList lang={lang} posts={posts} />
+  <Paginator
+    lang={lang}
+    currentPage={currentPage}
+    totalPages={totalPages}
+    prevUrl={prevUrl}
+    nextUrl={nextUrl}
+  />
+</Base>

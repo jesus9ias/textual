@@ -1,0 +1,6 @@
+{
+  "defaultLang": "es",
+  "supportedLangs": ["es", "en"],
+  "defaultCoverImage": "/assets/site/default-cover.jpg",
+  "siteUrl": "https://textual.example.com"
+}

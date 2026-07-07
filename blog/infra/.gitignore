@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# CDK
+cdk.out/
+*.d.ts
+*.js
+!jest.config.js
+
+# Environment (sensitive / environment-specific values live here only)
+.env
+
+# Logs / OS
+*.log
+.DS_Store

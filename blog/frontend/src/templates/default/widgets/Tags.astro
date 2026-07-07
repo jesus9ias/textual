@@ -1,0 +1,49 @@
+---
+/** Renders a set of tags as chips. Accepts explicit tag ids, or all tags. */
+import { getCollection } from 'astro:content';
+import { localized } from '../../../lib/content';
+import { tagPath } from '../../../lib/routing.mjs';
+import { t } from '../../../i18n/ui.mjs';
+
+interface Props {
+  lang: string;
+  /** Optional subset of tag ids to render; when omitted, renders all tags. */
+  tagIds?: string[];
+  heading?: boolean;
+}
+const { lang, tagIds, heading = true } = Astro.props;
+
+const allTags = await getCollection('tags');
+const tags = tagIds ? allTags.filter((tg) => tagIds.includes(tg.id)) : allTags;
+---
+
+<section class="taxonomy">
+  {heading && <h3>{t(lang, 'sectionTags')}</h3>}
+  <ul class="chips">
+    {
+      tags.map((tg) => (
+        <li>
+          <a href={tagPath(lang, localized(tg, lang).slug, 1)}>#{localized(tg, lang).title}</a>
+        </li>
+      ))
+    }
+  </ul>
+</section>
+
+<style>
+  .chips {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .chips a {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 999px;
+    text-decoration: none;
+    font-size: 0.85rem;
+  }
+</style>

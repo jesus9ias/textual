@@ -1,0 +1,36 @@
+---
+/** Previous/next pagination control. URLs are computed by the calling page. */
+import { t } from '../../../i18n/ui.mjs';
+
+interface Props {
+  lang: string;
+  currentPage: number;
+  totalPages: number;
+  prevUrl?: string;
+  nextUrl?: string;
+}
+const { lang, currentPage, totalPages, prevUrl, nextUrl } = Astro.props;
+---
+
+{
+  totalPages > 1 && (
+    <nav class="paginator" aria-label="pagination">
+      {prevUrl ? <a rel="prev" href={prevUrl}>{t(lang, 'prevPage')}</a> : <span />}
+      <span class="status">{t(lang, 'pageOf', { current: currentPage, total: totalPages })}</span>
+      {nextUrl ? <a rel="next" href={nextUrl}>{t(lang, 'nextPage')}</a> : <span />}
+    </nav>
+  )
+}
+
+<style>
+  .paginator {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 2rem 0;
+  }
+  .status {
+    color: #666;
+    font-size: 0.9rem;
+  }
+</style>

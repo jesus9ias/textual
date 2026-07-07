@@ -1,0 +1,5 @@
+{
+  "es": { "name": "Autor Invitado", "bio": "Colaborador ocasional.", "avatar": "/assets/authors/guest.jpg" },
+  "en": { "name": "Guest Writer", "bio": "Occasional contributor.", "avatar": "/assets/authors/guest.jpg" },
+  "social": {}
+}

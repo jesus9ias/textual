@@ -1,0 +1,86 @@
+---
+/** Paginated listing of posts in a category, per language, with localized metadata. */
+import { getCollection } from 'astro:content';
+import { supportedLangs } from '../../../../lib/site';
+import { getPublishedPostsByLang, localized } from '../../../../lib/content';
+import {
+  categoryPath,
+  chunk,
+  pageCount,
+  paginatedLangSwitch,
+  PAGE_SIZE,
+} from '../../../../lib/routing.mjs';
+import { t } from '../../../../i18n/ui.mjs';
+import { layout, widget } from '../../../../lib/template';
+
+const Base = layout('Base');
+const PostList = widget('PostList');
+const Paginator = widget('Paginator');
+
+export async function getStaticPaths() {
+  const categories = await getCollection('categories');
+  const postsByLang = {};
+  for (const lang of supportedLangs) postsByLang[lang] = await getPublishedPostsByLang(lang);
+
+  const paths = [];
+  for (const category of categories) {
+    const catPostsByLang = Object.fromEntries(
+      supportedLangs.map((lang) => [
+        lang,
+        postsByLang[lang].filter((p) => p.data.categoryId === category.id),
+      ]),
+    );
+    const pageCountByLang = Object.fromEntries(
+      supportedLangs.map((lang) => [lang, pageCount(catPostsByLang[lang])]),
+    );
+
+    for (const lang of supportedLangs) {
+      const pages = chunk(catPostsByLang[lang], PAGE_SIZE);
+      pages.forEach((pagePosts, index) => {
+        const page = index + 1;
+        const langSwitch = paginatedLangSwitch({
+          supportedLangs,
+          page,
+          pageCountByLang,
+          urlFor: (code, p) => categoryPath(code, localized(category, code).slug, p),
+        });
+        paths.push({
+          params: { lang, slug: localized(category, lang).slug, page: String(page) },
+          props: {
+            posts: pagePosts,
+            currentPage: page,
+            totalPages: pages.length,
+            title: localized(category, lang).title,
+            description: localized(category, lang).description ?? '',
+            langSwitch,
+          },
+        });
+      });
+    }
+  }
+  return paths;
+}
+
+const { lang, slug } = Astro.params;
+const { posts, currentPage, totalPages, title, description, langSwitch } = Astro.props;
+const prevUrl = currentPage > 1 ? categoryPath(lang, slug, currentPage - 1) : undefined;
+const nextUrl = currentPage < totalPages ? categoryPath(lang, slug, currentPage + 1) : undefined;
+---
+
+<Base
+  lang={lang}
+  title={title}
+  description={description || t(lang, 'postsInCategory', { name: title })}
+  canonicalPath={categoryPath(lang, slug, currentPage)}
+  langSwitch={langSwitch}
+>
+  <h1>{t(lang, 'postsInCategory', { name: title })}</h1>
+  <PostList lang={lang} posts={posts} />
+  <Paginator
+    lang={lang}
+    currentPage={currentPage}
+    totalPages={totalPages}
+    prevUrl={prevUrl}
+    nextUrl={nextUrl}
+  />
+</Base>

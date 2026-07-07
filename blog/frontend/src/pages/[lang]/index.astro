@@ -1,0 +1,43 @@
+---
+/** Language home page: most recent posts plus taxonomy navigation. */
+import { supportedLangs } from '../../lib/site';
+import { getPublishedPostsByLang } from '../../lib/content';
+import { homePath, historicoPath, PAGE_SIZE } from '../../lib/routing.mjs';
+import { t } from '../../i18n/ui.mjs';
+import { layout, widget } from '../../lib/template';
+
+export async function getStaticPaths() {
+  return supportedLangs.map((lang) => ({ params: { lang } }));
+}
+
+const Base = layout('Base');
+const PostList = widget('PostList');
+const Categories = widget('Categories');
+const Tags = widget('Tags');
+const Authors = widget('Authors');
+
+const { lang } = Astro.params;
+const posts = await getPublishedPostsByLang(lang);
+const recent = posts.slice(0, PAGE_SIZE);
+const hasMore = posts.length > PAGE_SIZE;
+
+// The home exists in every language, so the switcher links each language's home.
+const langSwitch = supportedLangs.map((code) => ({ lang: code, href: homePath(code) }));
+---
+
+<Base
+  lang={lang}
+  title={t(lang, 'siteTitle')}
+  description={t(lang, 'siteTagline')}
+  canonicalPath={homePath(lang)}
+  langSwitch={langSwitch}
+>
+  <PostList lang={lang} posts={recent} />
+  {hasMore && <p><a href={historicoPath(lang, 2)}>{t(lang, 'nextPage')}</a></p>}
+
+  <aside class="taxonomies">
+    <Categories lang={lang} />
+    <Tags lang={lang} />
+    <Authors lang={lang} />
+  </aside>
+</Base>

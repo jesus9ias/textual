@@ -1,0 +1,86 @@
+---
+/** Paginated listing of posts by an author, per language. Author URLs use the
+ * canonical author `id` as the slug (authors have no localized slug). */
+import { getCollection } from 'astro:content';
+import { supportedLangs } from '../../../../lib/site';
+import { getPublishedPostsByLang, localizedAuthor } from '../../../../lib/content';
+import {
+  authorPath,
+  chunk,
+  pageCount,
+  paginatedLangSwitch,
+  PAGE_SIZE,
+} from '../../../../lib/routing.mjs';
+import { t } from '../../../../i18n/ui.mjs';
+import { layout, widget } from '../../../../lib/template';
+
+const Base = layout('Base');
+const PostList = widget('PostList');
+const Paginator = widget('Paginator');
+
+export async function getStaticPaths() {
+  const authors = await getCollection('authors');
+  const postsByLang = {};
+  for (const lang of supportedLangs) postsByLang[lang] = await getPublishedPostsByLang(lang);
+
+  const paths = [];
+  for (const author of authors) {
+    const authorPostsByLang = Object.fromEntries(
+      supportedLangs.map((lang) => [
+        lang,
+        postsByLang[lang].filter((p) => p.data.authorId === author.id),
+      ]),
+    );
+    const pageCountByLang = Object.fromEntries(
+      supportedLangs.map((lang) => [lang, pageCount(authorPostsByLang[lang])]),
+    );
+
+    for (const lang of supportedLangs) {
+      const pages = chunk(authorPostsByLang[lang], PAGE_SIZE);
+      pages.forEach((pagePosts, index) => {
+        const page = index + 1;
+        const langSwitch = paginatedLangSwitch({
+          supportedLangs,
+          page,
+          pageCountByLang,
+          urlFor: (code, p) => authorPath(code, author.id, p),
+        });
+        paths.push({
+          params: { lang, slug: author.id, page: String(page) },
+          props: {
+            posts: pagePosts,
+            currentPage: page,
+            totalPages: pages.length,
+            title: localizedAuthor(author, lang).name,
+            langSwitch,
+          },
+        });
+      });
+    }
+  }
+  return paths;
+}
+
+const { lang, slug } = Astro.params;
+const { posts, currentPage, totalPages, title, langSwitch } = Astro.props;
+const prevUrl = currentPage > 1 ? authorPath(lang, slug, currentPage - 1) : undefined;
+const nextUrl = currentPage < totalPages ? authorPath(lang, slug, currentPage + 1) : undefined;
+---
+
+<Base
+  lang={lang}
+  title={title}
+  description={t(lang, 'postsByAuthor', { name: title })}
+  canonicalPath={authorPath(lang, slug, currentPage)}
+  langSwitch={langSwitch}
+>
+  <h1>{t(lang, 'postsByAuthor', { name: title })}</h1>
+  <PostList lang={lang} posts={posts} />
+  <Paginator
+    lang={lang}
+    currentPage={currentPage}
+    totalPages={totalPages}
+    prevUrl={prevUrl}
+    nextUrl={nextUrl}
+  />
+</Base>

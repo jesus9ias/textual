@@ -1,0 +1,109 @@
+---
+/**
+ * Base HTML skeleton shared by every page. Owns the <head> SEO surface: meta
+ * title/description, canonical URL, hreflang alternates, Open Graph / Twitter
+ * card, and the per-language RSS <link>. All absolute URLs derive from the
+ * env-sourced `siteUrl`.
+ */
+import { siteUrl } from '../../../lib/site';
+import { absoluteUrl, rssPath } from '../../../lib/routing.mjs';
+import { t } from '../../../i18n/ui.mjs';
+import Menu from '../widgets/Menu.astro';
+
+interface HreflangAlternate {
+  hreflang: string;
+  href: string;
+}
+
+interface Props {
+  lang: string;
+  title: string;
+  description: string;
+  /** Absolute path (starts with `/`) of the current page, for the canonical URL. */
+  canonicalPath: string;
+  hreflang?: HreflangAlternate[];
+  /** Absolute URL of the social share image. */
+  ogImage?: string;
+  /** Page-aware language switcher entries; falls back to language homes. */
+  langSwitch?: { lang: string; href: string }[];
+}
+
+const { lang, title, description, canonicalPath, hreflang = [], ogImage, langSwitch } = Astro.props;
+
+const canonicalUrl = absoluteUrl(siteUrl, canonicalPath);
+const siteTitle = t(lang, 'siteTitle');
+const pageTitle = title === siteTitle ? title : `${title} · ${siteTitle}`;
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    {hreflang.map((alt) => <link rel="alternate" hreflang={alt.hreflang} href={alt.href} />)}
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <meta name="twitter:card" content={ogImage ? 'summary_large_image' : 'summary'} />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+    {ogImage && <meta name="twitter:image" content={ogImage} />}
+
+    <link
+      rel="alternate"
+      type="application/rss+xml"
+      title={t(lang, 'rssTitle')}
+      href={absoluteUrl(siteUrl, rssPath(lang))}
+    />
+  </head>
+  <body>
+    <Menu lang={lang} langSwitch={langSwitch} />
+    <main>
+      <slot />
+    </main>
+    <footer>
+      <p>{siteTitle} — {t(lang, 'siteTagline')}</p>
+    </footer>
+    <style is:global>
+      :root {
+        --max-width: 72ch;
+        --accent: #1a5fb4;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        line-height: 1.6;
+        color: #1a1a1a;
+      }
+      main {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 1.5rem;
+      }
+      a {
+        color: var(--accent);
+      }
+      img {
+        max-width: 100%;
+        height: auto;
+      }
+      footer {
+        max-width: var(--max-width);
+        margin: 2rem auto;
+        padding: 1.5rem;
+        border-top: 1px solid #ddd;
+        color: #666;
+      }
+    </style>
+  </body>
+</html>
