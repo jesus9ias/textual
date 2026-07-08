@@ -1,0 +1,77 @@
+---
+/**
+ * Primary navigation. Labels come from the i18n layer; never inlined.
+ *
+ * The language switcher is page-aware: the page supplies `langSwitch` (each
+ * language and the URL of the equivalent page in it). For a post this is the
+ * sibling post resolved via `translationId`, omitting languages with no
+ * translation. When a page supplies nothing, it falls back to linking each
+ * language's home.
+ */
+import { supportedLangs } from '../../../lib/site';
+import { homePath, historicoPath } from '../../../lib/routing.mjs';
+import { t } from '../../../i18n/ui.mjs';
+
+interface LangLink {
+  lang: string;
+  href: string;
+}
+interface Props {
+  lang: string;
+  langSwitch?: LangLink[];
+}
+const { lang, langSwitch } = Astro.props;
+const switchItems: LangLink[] =
+  langSwitch ?? supportedLangs.map((code) => ({ lang: code, href: homePath(code) }));
+---
+
+<header>
+  <nav aria-label="primary">
+    <a href={homePath(lang)} class="brand">{t(lang, 'siteTitle')}</a>
+    <a href={homePath(lang)}>{t(lang, 'navHome')}</a>
+    <a href={historicoPath(lang, 1)}>{t(lang, 'navArchive')}</a>
+    <span class="langs">
+      {
+        switchItems.map((item) => (
+          <a href={item.href} aria-current={item.lang === lang ? 'true' : undefined}>
+            {item.lang.toUpperCase()}
+          </a>
+        ))
+      }
+    </span>
+  </nav>
+  <style>
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    nav {
+      max-width: calc(var(--max-width) + var(--sidebar-width) + 2.5rem);
+      margin: 0 auto;
+      padding: 1rem 1.5rem;
+      display: flex;
+      gap: 1rem;
+      align-items: baseline;
+    }
+    nav a {
+      color: var(--text);
+      text-decoration: none;
+    }
+    .brand {
+      font-weight: 700;
+      margin-right: auto;
+      color: var(--accent);
+    }
+    .langs {
+      display: inline-flex;
+      gap: 0.5rem;
+    }
+    .langs a {
+      color: var(--muted);
+    }
+    .langs a[aria-current='true'] {
+      font-weight: 700;
+      color: var(--accent);
+    }
+  </style>
+</header>

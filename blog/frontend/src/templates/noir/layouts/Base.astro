@@ -1,9 +1,11 @@
 ---
 /**
- * Base HTML skeleton shared by every page. Owns the <head> SEO surface: meta
- * title/description, canonical URL, hreflang alternates, Open Graph / Twitter
- * card, and the per-language RSS <link>. All absolute URLs derive from the
- * env-sourced `siteUrl`.
+ * Dark ("noir") HTML skeleton shared by every page in this template. Owns the
+ * <head> SEO surface identically to the default template's Base. The home page
+ * passes an `<aside class="taxonomies">` (Categories/Tags/Authors) as part of
+ * its slot content; this layout reflows it into a right-hand column purely via
+ * CSS grid (`main:has(> .taxonomies)`) — no page markup changes required, so
+ * other templates/pages are unaffected.
  */
 import { siteUrl } from '../../../lib/site';
 import { absoluteUrl, rssPath } from '../../../lib/routing.mjs';
@@ -36,7 +38,7 @@ const pageTitle = title === siteTitle ? title : `${title} · ${siteTitle}`;
 ---
 
 <!doctype html>
-<html lang={lang} data-template="default">
+<html lang={lang} data-template="noir">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -72,37 +74,61 @@ const pageTitle = title === siteTitle ? title : `${title} · ${siteTitle}`;
       <p>{siteTitle} — {t(lang, 'siteTagline')}</p>
     </footer>
     <style is:global>
-      html[data-template='default'] {
+      html[data-template='noir'] {
         --max-width: 72ch;
-        --accent: #1a5fb4;
+        --sidebar-width: 300px;
+        --bg: #0b0b0d;
+        --surface: #17171b;
+        --surface-raised: #1f1f24;
+        --text: #ececef;
+        --muted: #9a9aa3;
+        --border: #2c2c33;
+        --accent: #e0b34d;
       }
-      html[data-template='default'] * {
+      html[data-template='noir'] * {
         box-sizing: border-box;
       }
-      html[data-template='default'] body {
+      html[data-template='noir'] body {
         margin: 0;
         font-family: system-ui, sans-serif;
         line-height: 1.6;
-        color: #1a1a1a;
+        color: var(--text);
+        background: var(--bg);
       }
-      html[data-template='default'] main {
-        max-width: var(--max-width);
+      html[data-template='noir'] main {
+        max-width: calc(var(--max-width) + var(--sidebar-width) + 2.5rem);
         margin: 0 auto;
         padding: 1.5rem;
       }
-      html[data-template='default'] a {
+      /* Only reflows when the home page's taxonomy aside is present; every
+         other page (post, listings) keeps a single reading column. */
+      html[data-template='noir'] main:has(> .taxonomies) {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) var(--sidebar-width);
+        align-items: start;
+        gap: 2.5rem;
+        max-width: calc(var(--max-width) + var(--sidebar-width) + 2.5rem);
+      }
+      html[data-template='noir'] main:has(> .taxonomies) > .taxonomies {
+        grid-column: 2;
+        grid-row: 1 / span 3;
+      }
+      html[data-template='noir'] main:not(:has(> .taxonomies)) {
+        max-width: var(--max-width);
+      }
+      html[data-template='noir'] a {
         color: var(--accent);
       }
-      html[data-template='default'] img {
+      html[data-template='noir'] img {
         max-width: 100%;
         height: auto;
       }
-      html[data-template='default'] footer {
+      html[data-template='noir'] footer {
         max-width: var(--max-width);
         margin: 2rem auto;
         padding: 1.5rem;
-        border-top: 1px solid #ddd;
-        color: #666;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
       }
     </style>
   </body>

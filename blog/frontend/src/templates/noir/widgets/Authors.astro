@@ -1,0 +1,26 @@
+---
+/** Lists every author with their localized name, linking to their listing. */
+import { getCollection } from 'astro:content';
+import { localizedAuthor } from '../../../lib/content';
+import { authorPath } from '../../../lib/routing.mjs';
+import { t } from '../../../i18n/ui.mjs';
+
+interface Props {
+  lang: string;
+}
+const { lang } = Astro.props;
+const authors = await getCollection('authors');
+---
+
+<section class="taxonomy">
+  <h3>{t(lang, 'sectionAuthors')}</h3>
+  <ul>
+    {
+      authors.map((a) => (
+        <li>
+          <a href={authorPath(lang, a.id, 1)}>{localizedAuthor(a, lang).name}</a>
+        </li>
+      ))
+    }
+  </ul>
+</section>

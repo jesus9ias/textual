@@ -1,0 +1,125 @@
+---
+/**
+ * Dark ("noir") post layout. Resolves the post's references (category/author/
+ * tags), its optimized cover, hreflang alternates, and the Open Graph image,
+ * then renders the article. The rendered Markdown body is provided via the
+ * default <slot/>. Category-specific layouts wrap this component and pass a
+ * distinct `layoutName` so the chosen layout is observable in the output.
+ */
+import { Image, getImage } from 'astro:assets';
+import type { PostEntry } from '../../../lib/content';
+import {
+  getCategoriesMap,
+  getAuthorsMap,
+  getPublishedPosts,
+  toPostLike,
+  localized,
+  localizedAuthor,
+} from '../../../lib/content';
+import { resolveCover } from '../../../lib/images';
+import { siteUrl, defaultLang, supportedLangs } from '../../../lib/site';
+import { absoluteUrl, postPath, homePath, categoryPath } from '../../../lib/routing.mjs';
+import { buildHreflangAlternates } from '../../../lib/hreflang.mjs';
+import { t } from '../../../i18n/ui.mjs';
+import Base from './Base.astro';
+import Tags from '../widgets/Tags.astro';
+
+interface Props {
+  post: PostEntry;
+  /** Identifies which layout rendered the post; observable as data-layout. */
+  layoutName?: string;
+}
+const { post, layoutName = 'post' } = Astro.props;
+const { lang } = post.data;
+
+const [categories, authors, allPosts] = await Promise.all([
+  getCategoriesMap(),
+  getAuthorsMap(),
+  getPublishedPosts(),
+]);
+const category = categories.get(post.data.categoryId);
+const author = authors.get(post.data.authorId);
+
+const coverMeta = await resolveCover(post.data.coverImage.src);
+const ogImage = coverMeta
+  ? absoluteUrl(siteUrl, (await getImage({ src: coverMeta, width: 1200 })).src)
+  : undefined;
+
+const hreflang = buildHreflangAlternates(toPostLike(post), allPosts.map(toPostLike), {
+  siteUrl,
+  defaultLang,
+});
+
+// Language switcher: link each language to the sibling post (same translationId)
+// when it exists, otherwise to that language's home so the toggle is never a
+// dead end. The hreflang alternate above stays strictly omitted for missing
+// translations — the two signals are decoupled (blog/spec.md i18n).
+const langSwitch = supportedLangs.map((code) => {
+  const sibling = allPosts.find(
+    (p) => p.data.translationId === post.data.translationId && p.data.lang === code,
+  );
+  return { lang: code, href: sibling ? postPath(code, sibling.data.slug) : homePath(code) };
+});
+
+const canonicalPath = postPath(lang, post.data.slug);
+const categoryTitle = category ? localized(category, lang).title : post.data.categoryId;
+const categoryHref = category ? categoryPath(lang, localized(category, lang).slug, 1) : '#';
+const authorName = author ? localizedAuthor(author, lang).name : post.data.authorId;
+---
+
+<Base
+  lang={lang}
+  title={post.data.title}
+  description={post.data.description}
+  canonicalPath={canonicalPath}
+  hreflang={hreflang}
+  ogImage={ogImage}
+  langSwitch={langSwitch}
+>
+  <article data-layout={layoutName}>
+    {
+      coverMeta && (
+        <Image
+          class="hero"
+          src={coverMeta}
+          alt={post.data.coverImage.alt}
+          widths={[480, 960, 1200]}
+          sizes="(max-width: 720px) 100vw, 720px"
+          loading="eager"
+        />
+      )
+    }
+    <h1>{post.data.title}</h1>
+    <p class="byline">
+      <a href={categoryHref}>{categoryTitle}</a>
+      {' · '}
+      {t(lang, 'byAuthor')} {authorName}
+      {' · '}
+      <time datetime={post.data.createdAt.toISOString()}>
+        {post.data.createdAt.toISOString().slice(0, 10)}
+      </time>
+    </p>
+
+    <div class="body">
+      <slot />
+    </div>
+
+    <Tags lang={lang} tagIds={post.data.tagIds} />
+  </article>
+
+  <style>
+    .hero {
+      width: 100%;
+      border-radius: 8px;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+    }
+    h1 {
+      margin: 1rem 0 0.25rem;
+    }
+    .byline {
+      color: var(--muted);
+      margin: 0 0 1.5rem;
+    }
+  </style>
+</Base>

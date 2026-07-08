@@ -1,0 +1,111 @@
+---
+/**
+ * Renders a list of post cards. Cover images go through Astro's <Image>
+ * component for optimization; the site-wide defaultCoverImage is used only as a
+ * listing fallback when a post's cover cannot be resolved.
+ */
+import { Image } from 'astro:assets';
+import type { PostEntry } from '../../../lib/content';
+import { getCategoriesMap, getAuthorsMap, localized, localizedAuthor } from '../../../lib/content';
+import { resolveCover } from '../../../lib/images';
+import { defaultCoverImage } from '../../../lib/site';
+import { postPath, categoryPath } from '../../../lib/routing.mjs';
+import { t } from '../../../i18n/ui.mjs';
+
+interface Props {
+  lang: string;
+  posts: PostEntry[];
+}
+const { lang, posts } = Astro.props;
+
+const [categories, authors] = await Promise.all([getCategoriesMap(), getAuthorsMap()]);
+
+const items = await Promise.all(
+  posts.map(async (post) => {
+    const category = categories.get(post.data.categoryId);
+    const author = authors.get(post.data.authorId);
+    return {
+      id: post.id,
+      href: postPath(post.data.lang, post.data.slug),
+      title: post.data.title,
+      description: post.data.description,
+      date: post.data.createdAt,
+      authorName: author ? localizedAuthor(author, lang).name : post.data.authorId,
+      categoryTitle: category ? localized(category, lang).title : post.data.categoryId,
+      categoryHref: category ? categoryPath(lang, localized(category, lang).slug, 1) : '#',
+      coverMeta: await resolveCover(post.data.coverImage.src),
+      coverAlt: post.data.coverImage.alt,
+    };
+  }),
+);
+---
+
+{
+  items.length === 0 ? (
+    <p>{t(lang, 'noPosts')}</p>
+  ) : (
+    <ul class="post-list">
+      {items.map((item) => (
+        <li>
+          <a href={item.href} class="cover">
+            {item.coverMeta ? (
+              <Image src={item.coverMeta} alt={item.coverAlt} widths={[480]} sizes="480px" />
+            ) : (
+              <img src={defaultCoverImage} alt="" loading="lazy" />
+            )}
+          </a>
+          <div class="meta">
+            <h2>
+              <a href={item.href}>{item.title}</a>
+            </h2>
+            <p class="byline">
+              <a href={item.categoryHref}>{item.categoryTitle}</a>
+              {' · '}
+              {t(lang, 'byAuthor')}{' '}{item.authorName}
+              {' · '}
+              <time datetime={item.date.toISOString()}>{item.date.toISOString().slice(0, 10)}</time>
+            </p>
+            <p>{item.description}</p>
+            <a href={item.href}>{t(lang, 'readMore')}</a>
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+<style>
+  .post-list {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: 1.5rem;
+  }
+  .post-list li {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+  }
+  .cover img {
+    border-radius: 6px;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    width: 100%;
+  }
+  .meta h2 {
+    margin: 0 0 0.25rem;
+  }
+  .meta h2 a {
+    color: var(--text);
+    text-decoration: none;
+  }
+  .byline {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 0.5rem;
+  }
+</style>

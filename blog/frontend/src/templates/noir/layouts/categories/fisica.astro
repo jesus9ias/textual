@@ -1,0 +1,20 @@
+---
+/**
+ * Category-specific layout for `fisica`. Demonstrates per-category layout
+ * resolution: it delegates to the default Post layout but tags the output with
+ * its own `layoutName`, so a post in this category renders through here rather
+ * than the generic Post layout. Categories without a file here fall back to
+ * Post.astro (resolution happens in the post page at build time).
+ */
+import type { PostEntry } from '../../../../lib/content';
+import Post from '../Post.astro';
+
+interface Props {
+  post: PostEntry;
+}
+const { post } = Astro.props;
+---
+
+<Post post={post} layoutName="category:fisica">
+  <slot />
+</Post>
