@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PUBLIC_SITE_URL: ${{ secrets.PUBLIC_SITE_URL }}
+      PUBLIC_TEMPLATE: ${{ secrets.PUBLIC_TEMPLATE }}
       SITE_BUCKET_NAME: ${{ secrets.SITE_BUCKET_NAME }}
       CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
     steps:
