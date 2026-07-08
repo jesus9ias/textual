@@ -7,11 +7,11 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "bootstrap": "node scripts/cdk.js bootstrap",
-    "synth": "node scripts/cdk.js synth",
-    "diff": "node scripts/cdk.js diff",
-    "deploy": "node scripts/cdk.js deploy",
-    "destroy": "node scripts/cdk.js destroy"
+    "bootstrap": "node scripts/cdk.mjs bootstrap",
+    "synth": "node scripts/cdk.mjs synth",
+    "diff": "node scripts/cdk.mjs diff",
+    "deploy": "node scripts/cdk.mjs deploy",
+    "destroy": "node scripts/cdk.mjs destroy"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
