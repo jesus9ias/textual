@@ -84,6 +84,29 @@ This is the authoritative detail behind the summary table in the monorepo `spec.
 
 ---
 
+## UI Design Reference
+
+The panel's visual design (dark glass theme, `Sora` + `IBM Plex Sans`, gradient accents) is sourced
+from a Claude Design handoff bundle committed at `panel/design/` — `Blog Panel.dc.html` (the
+exported prototype), `readme.md` (the handoff's own reading instructions), and reference images
+under `panel/design/uploads/`.
+
+`panel/design/` is the **visual source of truth** for future UI work: match its layout, spacing,
+color tokens, and component states before inventing new ones. It is a design-tool prototype, not a
+functional spec, and does not override anything else in this document. Where its markup implied
+different behavior than the Integrity Rules / Gherkin scenarios above (the original export omitted
+or simplified things like the typed-`"eliminar"` delete gate on some entities, the category
+slug-change warning, and the post editor's translation-link selector), this document's rules win —
+see the 2026-07-10 Decisions Log entries for the specific reconciliations already made when the
+panel was restyled to match this mockup.
+
+The design system is implemented as reusable CSS in `panel/frontend/src/styles.css` (tokens plus
+`.panel`/`.modal`/`.badge`/`.chip`/`.toggle`/`.nav-pill`/etc. component classes), not as the
+prototype's inline styles — extend those classes for new UI instead of duplicating raw values out
+of the mockup.
+
+---
+
 ## Backend Routes (`panel/backend`)
 
 All routes operate against the paths configured in `panel/backend/.env` (`BLOG_CONTENT_PATH`, `BLOG_CONFIG_PATH`). All routes are localhost-only.
@@ -401,3 +424,5 @@ Stages are executed in strict order. Claude Code stops after each stage and wait
 | 2026-07-06 | (Stage 3) The Markdown preview renders with `markdown-it` (`html: false`) inside a sandboxed `<iframe srcdoc>`; "open in new tab" uses a Blob URL | Satisfies the Security Contract (no `innerHTML`/`v-html`, no `eval`/`new Function`, no `document.write`): the rendered HTML lives in an isolated, script-less iframe, never injected into the app DOM. The preview is explicitly labelled approximate (Astro produces the published HTML) |
 | 2026-07-06 | (Stage 3) The Vite dev server proxies `/api` to the backend (`PANEL_PORT`) | Same-origin requests avoid CORS and keep the backend origin out of source; the frontend never hardcodes a backend URL |
 | 2026-07-06 | (Stage 3) A reusable `ConfirmModal` enforces the typed-word ("eliminar") gate for every delete, including posts; category/author deletes run a bulk-reassignment flow first; the tag-delete count is computed client-side from the posts list | One modal centralizes the monorepo's typed-confirmation rule. There is no tag-usage endpoint, so the count is derived from `GET /api/posts`. Reassignment updates each affected post via `PUT` before deletion is unblocked |
+| 2026-07-10 | Scoped restyle: the panel UI was rebuilt to match a Claude-Design mockup (dark glass theme, `Sora`/`IBM Plex Sans`) delivered as a handoff bundle. Category/author/tag CRUD, the typed-`"eliminar"` delete gate, the reassignment flow, the category slug-change warning, and the post editor's translation-link selector were all kept and re-skinned — the mockup itself omitted or simplified each of these (e.g. Authors/Tags were read-only cards/chips with no delete confirmation in the mockup) | The mockup was a simplified prototype exported from a design tool, not a functional spec; the developer confirmed (asked via 4 clarifying questions before implementing) that every existing security/functionality behavior should be preserved and merely re-themed, not dropped to match the prototype |
+| 2026-07-10 | Posts view gained client-side search (title/slug), language + category filters, and pagination (page size 6) — new relative to the original Stage 3 delivery | Directly requested by the mockup's design; implemented against the real `GET /api/posts` data (no backend change needed) rather than as mocked UI |

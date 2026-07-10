@@ -6,6 +6,7 @@ import PostEditor from './views/PostEditor.vue';
 import Categories from './views/Categories.vue';
 import Tags from './views/Tags.vue';
 import Authors from './views/Authors.vue';
+import ToastStack from './components/ToastStack.vue';
 
 type View = 'posts' | 'categories' | 'tags' | 'authors' | 'editor';
 
@@ -30,19 +31,22 @@ const tabs: { key: View; label: string }[] = [
 </script>
 
 <template>
-  <header class="topbar">
-    <strong>Textual · Panel</strong>
-    <nav class="row">
-      <button
-        v-for="tab in tabs"
-        :key="tab.key"
-        :class="{ primary: view === tab.key }"
-        @click="view = tab.key"
-      >
-        {{ tab.label }}
-      </button>
-    </nav>
-  </header>
+  <div class="topbar-outer">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>Textual · Panel</div>
+      <nav class="nav-pills">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          class="nav-pill"
+          :class="{ active: view === tab.key || (view === 'editor' && tab.key === 'posts') }"
+          @click="view = tab.key"
+        >
+          {{ tab.label }}
+        </button>
+      </nav>
+    </div>
+  </div>
 
   <main>
     <PostsList v-if="view === 'posts'" @create="openEditor(null)" @edit="openEditor($event)" />
@@ -51,23 +55,6 @@ const tabs: { key: View; label: string }[] = [
     <Tags v-else-if="view === 'tags'" />
     <Authors v-else-if="view === 'authors'" />
   </main>
-</template>
 
-<style scoped>
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  background: #fff;
-  z-index: 5;
-}
-main {
-  max-width: 70rem;
-  margin: 1.5rem auto;
-  padding: 0 1.5rem;
-}
-</style>
+  <ToastStack />
+</template>

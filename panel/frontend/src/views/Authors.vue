@@ -8,9 +8,12 @@
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api';
 import type { Author } from '../types';
+import type { PostListItem } from '../types';
 import ConfirmModal from '../components/ConfirmModal.vue';
+import { addToast } from '../toast';
 
 const authors = ref<Author[]>([]);
+const posts = ref<PostListItem[]>([]);
 const error = ref('');
 
 const emptyForm = (): Author & { mode: 'create' | 'edit' | null } => ({
@@ -29,10 +32,21 @@ const reassignTo = ref('');
 const confirmOpen = ref(false);
 
 async function load() {
-  const res = await api.listAuthors();
-  authors.value = res.data?.authors ?? [];
+  const [a, p] = await Promise.all([api.listAuthors(), api.listPosts()]);
+  authors.value = a.data?.authors ?? [];
+  posts.value = p.data?.posts ?? [];
 }
 onMounted(load);
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
+const countOf = (authorId: string) => posts.value.filter((p) => p.authorId === authorId).length;
+const authorsProcessed = computed(() => authors.value.map((a) => ({ ...a, count: countOf(a.id) })));
 
 const canSave = computed(() => form.value.id && form.value.es.name && form.value.en.name);
 
@@ -55,6 +69,7 @@ async function save() {
     return;
   }
   cancelForm();
+  addToast('Autor guardado', 'success');
   await load();
 }
 
@@ -85,6 +100,7 @@ async function confirmDelete() {
   await api.deleteAuthor(pending.value.id);
   confirmOpen.value = false;
   cancelDelete();
+  addToast('Autor eliminado', 'success');
   await load();
 }
 function cancelDelete() {
@@ -98,63 +114,92 @@ const replacements = computed(() => authors.value.filter((a) => a.id !== pending
 </script>
 
 <template>
-  <section>
-    <div class="row" style="justify-content: space-between">
-      <h2>Autores</h2>
-      <button class="primary" @click="startCreate">Nuevo autor</button>
+  <div>
+    <div class="row-between">
+      <h1>Autores</h1>
+      <button class="primary" @click="startCreate">+ Nuevo autor</button>
     </div>
     <p v-if="error" class="warning">{{ error }}</p>
 
-    <table>
-      <thead>
-        <tr><th>id</th><th>ES</th><th>EN</th><th></th></tr>
-      </thead>
-      <tbody>
-        <tr v-for="a in authors" :key="a.id">
-          <td><code>{{ a.id }}</code></td>
-          <td>{{ a.es.name }}</td>
-          <td>{{ a.en.name }}</td>
-          <td class="row">
+    <div class="card-grid">
+      <div v-for="a in authorsProcessed" :key="a.id" class="author-card">
+        <div class="avatar">{{ initials(a.es.name) }}</div>
+        <div style="flex: 1; min-width: 0">
+          <div style="font-size: 15px; font-weight: 600">{{ a.es.name }}</div>
+          <div class="hint" style="margin-top: 2px">{{ a.id }} · {{ a.count }} posts</div>
+          <div class="row" style="margin-top: 10px">
             <button @click="startEdit(a)">Editar</button>
             <button class="danger" @click="beginDelete(a)">Eliminar</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div v-if="form.mode" class="card">
-      <h3>{{ form.mode === 'create' ? 'Nuevo autor' : `Editar ${form.id}` }}</h3>
-      <label>id</label>
-      <input v-model="form.id" :disabled="form.mode === 'edit'" placeholder="p.ej. ignacio-garza" />
-      <div class="row" style="gap: 1rem; align-items: flex-start">
-        <div style="flex: 1">
-          <label>ES nombre</label><input v-model="form.es.name" />
-          <label>ES bio</label><input v-model="form.es.bio" />
-          <label>ES avatar</label><input v-model="form.es.avatar" />
-        </div>
-        <div style="flex: 1">
-          <label>EN nombre</label><input v-model="form.en.name" />
-          <label>EN bio</label><input v-model="form.en.bio" />
-          <label>EN avatar</label><input v-model="form.en.avatar" />
+          </div>
         </div>
       </div>
-      <div class="row" style="margin-top: 0.75rem">
-        <button class="primary" :disabled="!canSave" @click="save">Guardar</button>
-        <button @click="cancelForm">Cancelar</button>
+      <div v-if="authorsProcessed.length === 0" class="muted">Aún no hay autores.</div>
+    </div>
+
+    <!-- Create / edit modal -->
+    <div v-if="form.mode" class="modal-overlay" @click.self="cancelForm">
+      <div class="modal wide">
+        <h2 style="margin-bottom: 18px">{{ form.mode === 'create' ? 'Nuevo autor' : `Editar ${form.id}` }}</h2>
+
+        <div class="field">
+          <label style="text-transform: none; color: rgba(255, 255, 255, 0.45); font-weight: 400">id</label>
+          <input v-model="form.id" :disabled="form.mode === 'edit'" placeholder="p.ej. ignacio-garza" class="mono" />
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px">
+          <div>
+            <div class="field">
+              <label style="color: rgba(147, 183, 255, 0.85)">ES nombre</label>
+              <input v-model="form.es.name" />
+            </div>
+            <div class="field">
+              <label style="color: rgba(147, 183, 255, 0.85)">ES bio</label>
+              <input v-model="form.es.bio" />
+            </div>
+            <div class="field" style="margin-bottom: 0">
+              <label style="color: rgba(147, 183, 255, 0.85)">ES avatar</label>
+              <input v-model="form.es.avatar" />
+            </div>
+          </div>
+          <div>
+            <div class="field">
+              <label style="color: rgba(147, 183, 255, 0.85)">EN nombre</label>
+              <input v-model="form.en.name" />
+            </div>
+            <div class="field">
+              <label style="color: rgba(147, 183, 255, 0.85)">EN bio</label>
+              <input v-model="form.en.bio" />
+            </div>
+            <div class="field" style="margin-bottom: 0">
+              <label style="color: rgba(147, 183, 255, 0.85)">EN avatar</label>
+              <input v-model="form.en.avatar" />
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 20px">
+          <button @click="cancelForm">Cancelar</button>
+          <button class="primary" :disabled="!canSave" @click="save">Guardar</button>
+        </div>
       </div>
     </div>
 
-    <div v-if="pending && usageCount > 0" class="card">
-      <h3>No se puede eliminar «{{ pending.id }}»</h3>
-      <p class="warning">{{ usageCount }} posts referencian este autor. Reasígnalos antes de eliminar.</p>
-      <label>Reasignar todos a</label>
-      <select v-model="reassignTo">
-        <option value="" disabled>Elegir autor…</option>
-        <option v-for="r in replacements" :key="r.id" :value="r.id">{{ r.es.name }}</option>
-      </select>
-      <div class="row" style="margin-top: 0.75rem">
-        <button class="primary" :disabled="!reassignTo" @click="reassignAll">Reasignar {{ usageCount }} posts</button>
-        <button @click="cancelDelete">Cancelar</button>
+    <!-- Reassignment (deletion blocked while referenced) -->
+    <div v-if="pending && usageCount > 0" class="modal-overlay" @click.self="cancelDelete">
+      <div class="modal">
+        <h2 style="margin-bottom: 16px">No se puede eliminar «{{ pending.id }}»</h2>
+        <div class="warning">{{ usageCount }} posts referencian este autor. Reasígnalos antes de eliminar.</div>
+        <div class="field" style="margin-top: 14px">
+          <label style="text-transform: none; color: rgba(255, 255, 255, 0.5); font-weight: 400">Reasignar todos a</label>
+          <select v-model="reassignTo">
+            <option value="" disabled>Elegir autor…</option>
+            <option v-for="r in replacements" :key="r.id" :value="r.id">{{ r.es.name }}</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button @click="cancelDelete">Cancelar</button>
+          <button class="primary" :disabled="!reassignTo" @click="reassignAll">Reasignar {{ usageCount }} posts</button>
+        </div>
       </div>
     </div>
 
@@ -165,5 +210,5 @@ const replacements = computed(() => authors.value.filter((a) => a.id !== pending
       @confirm="confirmDelete"
       @cancel="cancelDelete"
     />
-  </section>
+  </div>
 </template>

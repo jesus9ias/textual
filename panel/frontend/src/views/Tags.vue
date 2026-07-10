@@ -9,6 +9,7 @@ import { computed, onMounted, ref } from 'vue';
 import { api } from '../api';
 import type { PostListItem, Tag } from '../types';
 import ConfirmModal from '../components/ConfirmModal.vue';
+import { addToast } from '../toast';
 
 const tags = ref<Tag[]>([]);
 const posts = ref<PostListItem[]>([]);
@@ -33,6 +34,7 @@ async function load() {
 onMounted(load);
 
 const usageOf = (tagId: string) => posts.value.filter((p) => p.tagIds.includes(tagId)).length;
+const tagsProcessed = computed(() => tags.value.map((t) => ({ ...t, count: usageOf(t.id) })));
 const canSave = computed(() => form.value.id && form.value.es.title && form.value.en.title);
 
 function startCreate() {
@@ -54,6 +56,7 @@ async function save() {
     return;
   }
   cancelForm();
+  addToast('Etiqueta guardada', 'success');
   await load();
 }
 
@@ -66,6 +69,7 @@ async function confirmDelete() {
   await api.deleteTag(pending.value.id);
   confirmOpen.value = false;
   pending.value = null;
+  addToast('Etiqueta eliminada', 'success');
   await load();
 }
 function cancelDelete() {
@@ -79,48 +83,61 @@ const pendingMessage = computed(() =>
 </script>
 
 <template>
-  <section>
-    <div class="row" style="justify-content: space-between">
-      <h2>Etiquetas</h2>
-      <button class="primary" @click="startCreate">Nueva etiqueta</button>
+  <div>
+    <div class="row-between">
+      <h1>Etiquetas</h1>
+      <button class="primary" @click="startCreate">+ Nueva etiqueta</button>
     </div>
     <p v-if="error" class="warning">{{ error }}</p>
 
-    <table>
-      <thead>
-        <tr><th>id</th><th>ES</th><th>EN</th><th>Usos</th><th></th></tr>
-      </thead>
-      <tbody>
-        <tr v-for="t in tags" :key="t.id">
-          <td><code>{{ t.id }}</code></td>
-          <td>{{ t.es.title }}</td>
-          <td>{{ t.en.title }}</td>
-          <td>{{ usageOf(t.id) }}</td>
-          <td class="row">
-            <button @click="startEdit(t)">Editar</button>
-            <button class="danger" @click="beginDelete(t)">Eliminar</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div v-if="form.mode" class="card">
-      <h3>{{ form.mode === 'create' ? 'Nueva etiqueta' : `Editar ${form.id}` }}</h3>
-      <label>id</label>
-      <input v-model="form.id" :disabled="form.mode === 'edit'" placeholder="p.ej. relatividad" />
-      <div class="row" style="gap: 1rem; align-items: flex-start">
-        <div style="flex: 1">
-          <label>ES título</label><input v-model="form.es.title" />
-          <label>ES slug</label><input v-model="form.es.slug" />
-        </div>
-        <div style="flex: 1">
-          <label>EN título</label><input v-model="form.en.title" />
-          <label>EN slug</label><input v-model="form.en.slug" />
-        </div>
+    <div class="panel panel-pad" style="display: flex; flex-wrap: wrap; gap: 12px">
+      <div v-for="t in tagsProcessed" :key="t.id" class="chip">
+        <button type="button" class="ghost" style="padding: 0; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.9)" @click="startEdit(t)">
+          {{ t.es.title }}
+        </button>
+        <span class="count">{{ t.count }}</span>
+        <button type="button" class="x" title="Eliminar etiqueta" @click="beginDelete(t)">×</button>
       </div>
-      <div class="row" style="margin-top: 0.75rem">
-        <button class="primary" :disabled="!canSave" @click="save">Guardar</button>
-        <button @click="cancelForm">Cancelar</button>
+      <div v-if="tagsProcessed.length === 0" class="muted">Aún no hay etiquetas.</div>
+    </div>
+
+    <!-- Create / edit modal -->
+    <div v-if="form.mode" class="modal-overlay" @click.self="cancelForm">
+      <div class="modal wide">
+        <h2 style="margin-bottom: 18px">{{ form.mode === 'create' ? 'Nueva etiqueta' : `Editar ${form.id}` }}</h2>
+
+        <div class="field">
+          <label style="text-transform: none; color: rgba(255, 255, 255, 0.45); font-weight: 400">id</label>
+          <input v-model="form.id" :disabled="form.mode === 'edit'" placeholder="p.ej. relatividad" class="mono" />
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px">
+          <div>
+            <div class="field">
+              <label style="color: rgba(147, 183, 255, 0.85)">ES título</label>
+              <input v-model="form.es.title" />
+            </div>
+            <div class="field" style="margin-bottom: 0">
+              <label style="color: rgba(147, 183, 255, 0.85)">ES slug</label>
+              <input v-model="form.es.slug" class="mono" />
+            </div>
+          </div>
+          <div>
+            <div class="field">
+              <label style="color: rgba(147, 183, 255, 0.85)">EN título</label>
+              <input v-model="form.en.title" />
+            </div>
+            <div class="field" style="margin-bottom: 0">
+              <label style="color: rgba(147, 183, 255, 0.85)">EN slug</label>
+              <input v-model="form.en.slug" class="mono" />
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 20px">
+          <button @click="cancelForm">Cancelar</button>
+          <button class="primary" :disabled="!canSave" @click="save">Guardar</button>
+        </div>
       </div>
     </div>
 
@@ -131,5 +148,5 @@ const pendingMessage = computed(() =>
       @confirm="confirmDelete"
       @cancel="cancelDelete"
     />
-  </section>
+  </div>
 </template>

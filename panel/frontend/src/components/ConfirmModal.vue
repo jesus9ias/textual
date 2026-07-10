@@ -29,41 +29,22 @@ watch(
 </script>
 
 <template>
-  <div v-if="open" class="overlay" @click.self="emit('cancel')">
+  <div v-if="open" class="modal-overlay" @click.self="emit('cancel')">
     <div class="modal" role="dialog" aria-modal="true">
-      <h3>{{ title }}</h3>
-      <p>{{ message }}</p>
-      <label :for="'confirm-input'">
-        Escribe <strong>{{ confirmWord }}</strong> para confirmar
-      </label>
-      <input id="confirm-input" v-model="typed" autocomplete="off" />
-      <div class="actions">
+      <h2 style="margin-bottom: 12px">{{ title }}</h2>
+      <p style="font-size: 14.5px; line-height: 1.6; color: rgba(255, 255, 255, 0.65); margin: 0 0 18px">
+        {{ message }}
+      </p>
+      <div class="field">
+        <label :for="'confirm-input'" style="text-transform: none; font-weight: 400; color: rgba(255, 255, 255, 0.5)">
+          Escribe <strong style="color: rgba(255, 255, 255, 0.85)">{{ confirmWord }}</strong> para confirmar
+        </label>
+        <input id="confirm-input" v-model="typed" autocomplete="off" />
+      </div>
+      <div class="modal-actions">
         <button @click="emit('cancel')">Cancelar</button>
-        <button class="danger" :disabled="typed !== confirmWord" @click="emit('confirm')">Eliminar</button>
+        <button class="danger solid" :disabled="typed !== confirmWord" @click="emit('confirm')">Eliminar</button>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal {
-  background: #fff;
-  border-radius: 10px;
-  padding: 1.25rem;
-  width: min(28rem, 92vw);
-}
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-</style>

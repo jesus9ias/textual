@@ -21,6 +21,12 @@ intended single write path into a local `blog/frontend` checkout.
   panel.)
 - **Conflict detection.** If a change contradicts a spec or a prior Decisions Log entry, stop,
   alert the developer, and — only if confirmed — update the documentation first, then the code.
+- **Visual design source.** `panel/design/` (a Claude Design handoff bundle: `Blog Panel.dc.html` +
+  `readme.md` + `uploads/`) is the source of truth for the panel's look — dark glass theme,
+  `Sora`/`IBM Plex Sans`, gradient accents — see "UI Design Reference" in the panel spec. It is a
+  prototype, not a functional spec: reconcile any behavioral gap against this document's Integrity
+  Rules per the Conflict detection rule above, and log the reconciliation in the Decisions Log (see
+  the 2026-07-10 entries for precedent).
 - **No magic values.** Constants live in dedicated spots (rule codes / patterns in `integrity.ts`
   and `fsWriter.ts`, config in `config.ts` / `.env`).
 - **Security is enforced, not optional.**
@@ -61,6 +67,10 @@ intended single write path into a local `blog/frontend` checkout.
 ### Frontend (`panel/frontend`)
 
 - **Vue 3 + Vite; navigation is a reactive `view` ref**, not `vue-router`.
+- **`styles.css` implements the design system** as reusable classes (`.panel`, `.modal`, `.badge`,
+  `.chip`, `.toggle`, `.nav-pill`, etc.), translated from `panel/design/Blog Panel.dc.html`'s inline
+  styles into design tokens + component classes. Extend these classes for new UI rather than
+  copying raw inline styles out of the mockup.
 - **`api.ts`** is the single fetch wrapper; requests are same-origin `/api/...` and the Vite dev
   server proxies them to the backend (`PANEL_PORT`). No backend URL in source.
 - **`ConfirmModal.vue`** centralizes the typed-word gate for all deletes. Category/author deletes
