@@ -39,15 +39,15 @@ const post = (overrides: Partial<PostChangeInput> = {}): PostChangeInput => ({
   ...overrides,
 });
 
-test('T-MANIFEST-01: post change emits its own exact path', () => {
+test('T-MANIFEST-01: post change emits its own path as a wildcard (the edge function rewrites it to .../index.html before the cache lookup)', () => {
   const paths = postInvalidationPaths(post(), catalog);
-  assert.ok(paths.includes('/es/nuevo-post'));
+  assert.ok(paths.includes('/es/nuevo-post/*'));
 });
 
 test('T-MANIFEST-02: post change emits its full shell', () => {
   const paths = postInvalidationPaths(post(), catalog);
   const expected = [
-    '/es/',
+    '/es/index.html',
     '/es/historico/*',
     '/sitemap.xml',
     '/es/rss.xml',

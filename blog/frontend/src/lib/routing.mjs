@@ -53,11 +53,23 @@ export function homePath(lang) {
  * the only routes affected by changes the panel does not track (template,
  * layout, or page edits made directly in code) — document any new
  * root-level or non-panel-tracked view here immediately.
+ *
+ * The home entry targets `{homePath}index.html`, not the bare `{homePath}`:
+ * the edge CloudFront Function rewrites directory-style URIs to append
+ * `index.html` before the cache lookup (see
+ * `infra/lib/constructs/edge-function.ts`), so that's the key actually
+ * cached — invalidating the bare path never matches it. `index.html` is used
+ * instead of a `{homePath}*` wildcard because the latter would invalidate
+ * every page under that language on every single publish.
  * @param {readonly string[]} supportedLangs
  * @returns {string[]}
  */
 export function alwaysInvalidatePaths(supportedLangs) {
-  return [...supportedLangs.map(homePath), ROOT_ROUTES.sitemap, ROOT_ROUTES.robots];
+  return [
+    ...supportedLangs.map((lang) => `${homePath(lang)}index.html`),
+    ROOT_ROUTES.sitemap,
+    ROOT_ROUTES.robots,
+  ];
 }
 
 /** Path of a paginated aggregator page under `[lang]`. */

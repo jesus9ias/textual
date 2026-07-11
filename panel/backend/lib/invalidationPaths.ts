@@ -39,8 +39,28 @@ export interface TaxonomyChangeInput {
 function homePath(lang: string): string {
   return `/${lang}/`;
 }
+/**
+ * The home page's actual cached key: the edge CloudFront Function rewrites
+ * `/{lang}/` to `/{lang}/index.html` before the cache lookup (see
+ * blog/infra/lib/constructs/edge-function.ts), so invalidating the bare
+ * `/{lang}/` never matches the real object. Scoped to `index.html` exactly
+ * (not a `/{lang}/*` wildcard) — that would invalidate every page under the
+ * language on every single publish.
+ */
+function homeInvalidationPath(lang: string): string {
+  return `${homePath(lang)}index.html`;
+}
 function postPath(lang: string, slug: string): string {
   return `/${lang}/${slug}`;
+}
+/**
+ * The post's actual cached key is `{postPath}/index.html` (same edge-function
+ * rewrite as the home page). A trailing wildcard matches it, consistent with
+ * every other per-entity invalidation path in this module, and is harmless
+ * since nothing else lives under a post's own path.
+ */
+function postWildcard(lang: string, slug: string): string {
+  return `${postPath(lang, slug)}/${WILDCARD}`;
 }
 function historicoWildcard(lang: string): string {
   return `/${lang}/${ROUTE_SEGMENTS.historico}/${WILDCARD}`;
@@ -61,8 +81,8 @@ function rssPath(lang: string): string {
 /** Paths affected by a post create/update/delete: its own page plus its shell. */
 export function postInvalidationPaths(post: PostChangeInput, catalog: InvalidationCatalog): string[] {
   const paths = new Set<string>();
-  paths.add(postPath(post.lang, post.slug));
-  paths.add(homePath(post.lang));
+  paths.add(postWildcard(post.lang, post.slug));
+  paths.add(homeInvalidationPath(post.lang));
   paths.add(historicoWildcard(post.lang));
   paths.add(ROOT_ROUTES.sitemap);
   paths.add(rssPath(post.lang));

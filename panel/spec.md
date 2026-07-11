@@ -156,9 +156,12 @@ A pure module, **independent from `blog/frontend/src/lib/routing.mjs`** (deliber
 not imported or shared — see Decisions Log), computing the CloudFront paths a post/category/tag/author
 change affects:
 
-- A post create/update/delete always emits its own exact path (`/{lang}/{slug}`), plus its shell:
-  home, `historico` wildcard, its category's wildcard listing, each of its tags' wildcard listings,
-  its author's wildcard listing, `sitemap.xml`, and that language's `rss.xml`.
+- A post create/update/delete always emits its own path as a wildcard (`/{lang}/{slug}/*` — the
+  edge CloudFront Function rewrites it to `.../index.html` before the cache lookup, so a bare
+  invalidation path never matches the real cached object), plus its shell: home (as
+  `/{lang}/index.html`, same rewrite), `historico` wildcard, its category's wildcard listing, each
+  of its tags' wildcard listings, its author's wildcard listing, `sitemap.xml`, and that language's
+  `rss.xml`.
 - A category/tag/author create/update (no post change) emits only its own wildcard listing
   path(s), for every supported language.
 - A delete of any of the above computes paths from the entity's state **before** the write — the
@@ -401,7 +404,7 @@ Feature: Live preview transparency
 
 | Test ID | Objective | Input | Expected output |
 |---|---|---|---|
-| `T-MANIFEST-01` | Post change emits its own exact path | post descriptor | output includes `/{lang}/{slug}` |
+| `T-MANIFEST-01` | Post change emits its own path as a wildcard (the edge function rewrites it to `.../index.html` before the cache lookup) | post descriptor | output includes `/{lang}/{slug}/*` |
 | `T-MANIFEST-02` | Post change emits its full shell | post with categoryId X, tagIds [Y], authorId Z | output includes home, historico wildcard, category X wildcard, tag Y wildcard, author Z wildcard, sitemap.xml, rss.xml |
 | `T-MANIFEST-03` | Post change does not emit unrelated category/tag paths | post with categoryId "fisica" | output excludes other categories'/tags' wildcards |
 | `T-MANIFEST-04` | Category/tag/author-only change (no post) emits only its own listing | categories entity change | output = that entity's wildcard listing paths, one per supported language |
@@ -517,3 +520,4 @@ Stages are executed in strict order. Claude Code stops after each stage and wait
 | 2026-07-10 | `lib/invalidationPaths.ts` duplicates the route/wildcard-building logic that also exists in `blog/frontend/src/lib/routing.mjs`, rather than importing or extracting it to a shared package | Keeps `panel/` and `blog/` fully independent subprojects (no cross-subproject dependency has ever existed); this route-shape logic changes rarely, so the duplication cost is low next to the cost of introducing shared tooling/build wiring between two otherwise-independent packages |
 | 2026-07-10 | Manifest de-duplication checks only the lines after the last cut marker (whole file if none exists), by exact string match | Matches the git-diff-replacement's accepted risk profile: over-invalidating (a rare duplicate slipping through) is harmless, so exact-match dedup is sufficient — no need for wildcard-subsumption logic (the design never emits both an exact and a wildcard form of the same listing) |
 | 2026-07-10 | The publish cut (`POST /api/publish-cut` + a panel button) is a manual, developer-triggered action with no verification that a deploy actually succeeded | The panel has no visibility into GitHub Actions (it is local-only and git-unaware by design). A missed click only over-invalidates on the next publish — the same accepted worst case as manual manifest edits — so no verification mechanism is needed |
+| 2026-07-11 | Bugfix: `postInvalidationPaths`'s own post entry now emits `/{lang}/{slug}/*` (was the bare `/{lang}/{slug}`); its home entry now emits `/{lang}/index.html` (was the bare `/{lang}/`) | Live invalidations were firing but not clearing the actual cached page — the edge CloudFront Function rewrites directory-style URIs to append `index.html` **before** the CloudFront cache lookup, so the cached object's real key is `.../index.html`, which a bare-path invalidation never matches. A wildcard suffix (matching every other per-entity path already in this module) fixes the post's own entry; home specifically needs the exact `index.html` suffix rather than a `/{lang}/*` wildcard, since that would invalidate every page under the language on every single publish. `T-MANIFEST-01`/`T-MANIFEST-02` updated to assert the corrected paths; the live `invalidation-manifest.txt`'s pending entries (posted before the fix) were hand-corrected to match. See `blog/spec.md`'s matching entry for the `alwaysInvalidatePaths` (home-only) side of the same fix |
