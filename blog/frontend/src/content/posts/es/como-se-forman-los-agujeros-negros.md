@@ -24,4 +24,4 @@ Cuando una estrella masiva agota su combustible, la gravedad vence a la presión
 interna y el núcleo colapsa. Si la masa remanente supera cierto límite, nada
 detiene el colapso y se forma un **agujero negro**.
 
-El horizonte de sucesos marca el punto de no retorno..
+El horizonte de sucesos marca el punto de no retorno.

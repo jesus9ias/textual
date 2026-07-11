@@ -22,4 +22,4 @@ When a massive star runs out of fuel, gravity overwhelms internal pressure and
 the core collapses. If the remaining mass exceeds a certain limit, nothing halts
 the collapse and a **black hole** forms.
 
-The event horizon marks the point of no return...
+The event horizon marks the point of no return.
