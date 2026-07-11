@@ -7,6 +7,8 @@ import Categories from './views/Categories.vue';
 import Tags from './views/Tags.vue';
 import Authors from './views/Authors.vue';
 import ToastStack from './components/ToastStack.vue';
+import { api } from './api';
+import { addToast } from './toast';
 
 type View = 'posts' | 'categories' | 'tags' | 'authors' | 'editor';
 
@@ -28,6 +30,15 @@ const tabs: { key: View; label: string }[] = [
   { key: 'tags', label: 'Etiquetas' },
   { key: 'authors', label: 'Autores' },
 ];
+
+// Manual assertion that the last push actually deployed — the panel has no
+// visibility into GitHub Actions (see panel/spec.md's Publish Invalidation
+// Manifest). Click only after confirming the deploy succeeded.
+async function markPublish() {
+  const res = await api.publishCut();
+  if (res.ok) addToast('Publicación marcada.', 'success');
+  else addToast('No se pudo marcar la publicación.', 'error');
+}
 </script>
 
 <template>
@@ -45,6 +56,9 @@ const tabs: { key: View; label: string }[] = [
           {{ tab.label }}
         </button>
       </nav>
+      <button class="nav-pill" title="Marca el manifest como publicado hasta este punto" @click="markPublish">
+        Marcar publicación
+      </button>
     </div>
   </div>
 

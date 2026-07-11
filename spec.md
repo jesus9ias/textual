@@ -59,7 +59,7 @@ textual/
 │   │   │   └── assets/posts/{translationId}/cover.jpg
 │   │   ├── scripts/
 │   │   │   ├── validate-integrity.mjs
-│   │   │   └── detect-changed-views.mjs
+│   │   │   └── compute-invalidation-paths.mjs
 │   │   └── astro.config.mjs
 │   │
 │   └── infra/                    # CDK v2, deployed from local — single stack, region us-east-1
@@ -261,10 +261,10 @@ Full detail, scripts, and UI flows for these rules live in `blog/spec.md` (CI en
 - **`blog/frontend` has a single workflow**, `deploy-blog.yml`, triggered on push to `main` with a path filter on `blog/frontend/**`. Steps, in order:
   1. `astro sync` — regenerates Content Collection types, validates frontmatter against Zod schemas (fails the build on shape errors)
   2. `node scripts/validate-integrity.mjs` — referential-integrity checks (see Domain Model table above)
-  3. `node scripts/detect-changed-views.mjs` — determines which aggregator pages (home, affected category/tag/author listings, sitemap, rss) are impacted by the changed post(s)
-  4. `astro build`
-  5. sync the whole build output to the single site bucket with `--delete`, tagging non-HTML with a long immutable `Cache-Control` and HTML with a short one (TTL differentiation without a bucket split)
-  6. CloudFront invalidation limited to the paths identified in step 3, plus the changed entry paths
+  3. `astro build`
+  4. sync the whole build output to the single site bucket with `--delete`, tagging non-HTML with a long immutable `Cache-Control` and HTML with a short one (TTL differentiation without a bucket split)
+  5. `node scripts/compute-invalidation-paths.mjs` — reads the invalidation manifest that `panel/` writes directly at content-write time (see `panel/spec.md`), takes everything pending since the last publish cut, and unions it with the fixed always-invalidate set (home per language, sitemap, robots)
+  6. CloudFront invalidation limited to the paths identified in step 5
 - **`panel/backend` is not part of any CI pipeline.** It only runs locally.
 - The bucket name and the CloudFront distribution ID are injected via GitHub Actions secrets, never hardcoded in the workflow file.
 
@@ -355,3 +355,4 @@ No domain, account ID, bucket name, distribution ID, or any environment-specific
 | 2026-07-06 | The bare domain root (`/`) is not a content page; it returns a deterministic `301` to `/{defaultLang}/` via a CloudFront Function, never based on `Accept-Language` or geolocation | Content-based redirects on the root URL are a known SEO anti-pattern (Googlebot and different users could see different destinations from the same URL); a fixed, always-identical redirect target keeps indexing and canonicalization simple. A CloudFront Function is edge-only and effectively free, so this does not reintroduce a server |
 | 2026-07-06 | (Stage 4) `validate-integrity.mjs`'s CI gate reads the committed content files directly (shared raw reader) instead of Astro's `getCollection()` output — superseding the 2026-07-03 "reuse getCollection" decision for the CLI path only | `astro:content` is a build-only virtual module and cannot be imported from a standalone Node process, so the pre-build gate (`node scripts/validate-integrity.mjs`) reads the same files Astro reads. `detect-changed-views.mjs` already needs a raw reader (for git-historical versions Astro can't provide), so both CI scripts share one reader — keeping the "no second parser" intent (one parser, not two). The pure, unit-tested check logic is unchanged |
 | 2026-07-07 | **Consolidated to a single S3 bucket + one CloudFront behavior**, superseding the two-bucket (`entries`/`shell`) design. TTL differentiation moves to per-object `Cache-Control` at publish time (immutable assets long, HTML short); a single edge CloudFront Function does the root redirect **and** a directory-index rewrite | With clean SEO URLs (`/{lang}/{slug}`, home at `/{lang}/`), the entries/shell split could not be expressed as a CloudFront path partition without per-language behavior enumeration, which mis-routed pages to the wrong bucket (AccessDenied). One bucket removes the partition problem entirely; `Cache-Control` recovers the TTL goal with less machinery. The directory-index rewrite (append `index.html`) is required because an S3 REST origin does not resolve directory URLs on its own |
+| 2026-07-10 | `scripts/detect-changed-views.mjs` (git-diff-based) is replaced by `scripts/compute-invalidation-paths.mjs`, which reads an invalidation manifest written directly by `panel/` at content-write time instead of diffing git history | The git-diff mechanism could only see `src/content`/`site.config.json` changes, so template/layout/page edits produced no invalidation paths, silently relying on the HTML's short TTL to self-heal. The panel already knows the exact paths a change affects, and its own pre-deletion state, without needing `git show` to recover history. Full rationale and the manifest format live in `blog/spec.md` and `panel/spec.md`'s Decisions Logs |

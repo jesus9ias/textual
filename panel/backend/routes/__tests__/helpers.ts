@@ -15,6 +15,7 @@ export interface Panel {
   base: string;
   contentRoot: string;
   configRoot: string;
+  manifestPath: string;
   close: () => Promise<void>;
   get: (p: string) => Promise<{ status: number; body: any }>;
   send: (method: string, p: string, body?: unknown) => Promise<{ status: number; body: any }>;
@@ -100,9 +101,10 @@ async function seed(configRoot: string): Promise<void> {
 export async function startPanel(): Promise<Panel> {
   const configRoot = await mkdtemp(path.join(tmpdir(), 'panel-routes-'));
   const contentRoot = path.join(configRoot, 'content');
+  const manifestPath = path.join(configRoot, 'invalidation-manifest.txt');
   await seed(configRoot);
 
-  const store = createStore({ contentRoot, configRoot });
+  const store = createStore({ contentRoot, configRoot, manifestPath });
   const server = createServer(store);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -116,6 +118,7 @@ export async function startPanel(): Promise<Panel> {
     base,
     contentRoot,
     configRoot,
+    manifestPath,
     close: () =>
       new Promise<void>((resolve) => server.close(() => rm(configRoot, { recursive: true, force: true }).then(() => resolve()))),
     get: (p) => fetch(`${base}${p}`).then(parse),

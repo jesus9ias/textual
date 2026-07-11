@@ -2,8 +2,10 @@ name: Deploy blog
 
 # Content pipeline only. This workflow never touches blog/infra (deployed from
 # local via cdk) and therefore needs no CloudFormation/CDK permissions — only
-# scoped S3 (both buckets) + CloudFront (create-invalidation). Path filter keeps
-# it isolated to the blog frontend.
+# scoped S3 (the single site bucket) + CloudFront (create-invalidation). Path
+# filter keeps it isolated to the blog frontend; the checkout still pulls the
+# whole repo, since compute-invalidation-paths.mjs reads the invalidation
+# manifest at the repo root (outside blog/), written by panel/.
 on:
   push:
     branches: [main]
@@ -28,8 +30,6 @@ jobs:
       CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # full history is required for git-based change detection
 
       - uses: actions/setup-node@v4
         with:
@@ -48,23 +48,16 @@ jobs:
       - name: Validate content integrity
         run: node scripts/validate-integrity.mjs
 
-      # Step 3 — compute the minimal invalidation path sets for this push
-      - name: Detect changed views
-        id: changes
-        env:
-          BASE_SHA: ${{ github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
+      # Step 3 — read the invalidation manifest panel/ writes directly at
+      # content-write time (see panel/spec.md), take everything pending since
+      # the last publish cut, and union it with the fixed always-invalidate
+      # set (home per language, sitemap, robots — see blog/spec.md)
+      - name: Compute invalidation paths
+        id: invalidation
         run: |
           set -euo pipefail
-          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            # First deploy on this branch (no prior commit): invalidate everything.
-            echo "entries=" >> "$GITHUB_OUTPUT"
-            echo "shell=/*" >> "$GITHUB_OUTPUT"
-          else
-            RESULT="$(node scripts/detect-changed-views.mjs)"
-            echo "entries=$(echo "$RESULT" | jq -r '.entries | join(" ")')" >> "$GITHUB_OUTPUT"
-            echo "shell=$(echo "$RESULT" | jq -r '.shell | join(" ")')" >> "$GITHUB_OUTPUT"
-          fi
+          RESULT="$(node scripts/compute-invalidation-paths.mjs)"
+          echo "paths=$(echo "$RESULT" | jq -r 'join(" ")')" >> "$GITHUB_OUTPUT"
 
       # Step 4 — build
       - name: Astro build
@@ -95,13 +88,12 @@ jobs:
       - name: Invalidate CloudFront
         run: |
           set -euo pipefail
-          PATHS="${{ steps.changes.outputs.entries }} ${{ steps.changes.outputs.shell }}"
-          TRIMMED="$(echo "$PATHS" | tr -s ' ' | sed 's/^ //;s/ $//')"
-          if [ -z "$TRIMMED" ]; then
-            echo "No changed views detected; skipping invalidation."
+          PATHS="${{ steps.invalidation.outputs.paths }}"
+          if [ -z "$PATHS" ]; then
+            echo "No paths to invalidate."
           else
             # shellcheck disable=SC2086
             aws cloudfront create-invalidation \
               --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
-              --paths $TRIMMED
+              --paths $PATHS
           fi

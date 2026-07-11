@@ -164,19 +164,31 @@ Checks performed (see Unit Test Definitions below for the corresponding test IDs
 
 Exits non-zero with a readable list of every violation found (not just the first one) if any check fails; `astro build` never runs when this script fails.
 
-### `scripts/detect-changed-views.mjs`
+### `scripts/compute-invalidation-paths.mjs`
 
-Determines the minimal set of output paths that must be rebuilt-and-invalidated for a given push, so a single new post never triggers a full-site CloudFront invalidation.
+Determines the exact set of CloudFront paths to invalidate for a given publish, sourced from a
+manifest the panel maintains directly — not from diffing git history.
 
 Approach:
 
-1. Diff the changed files in the push against the previous deployed commit, scoped to `src/content/**` and `src/*.config.json`.
-2. For each changed/added/removed post: its own entry path always goes to the **entries** bucket/invalidation list.
-3. For each changed/added/removed post, resolve the **shell** paths it affects: home, `historico` (paginated pages that include it), its category listing, each of its tags' listings, its author's listing, `sitemap.xml`, and the relevant `rss.xml`.
-4. If a `categories.json`, `tags.json`, or `authors.json` entry changed directly (title/description edited from the panel), its listing page(s) are added to the shell invalidation set even with no post changes.
-5. Output: two path lists (entries, shell) consumed by the invalidation step (both target the single distribution; the sync no longer splits by list).
+1. The panel (`panel/spec.md`) appends one CloudFront path per line to `invalidation-manifest.txt`
+   (repo root, outside `blog/`) on every post/category/tag/author create/edit/delete, using its own
+   copy of the shell/entry path-building logic. Lines starting with `---` are **cut markers**
+   (`---YYYY/MM/DD`, appended manually from the panel after the developer confirms a prior publish
+   succeeded) — everything else is a literal invalidation path.
+2. This script reads the manifest, takes every path line **after the last cut marker** (the whole
+   file if no cut marker exists yet), and de-duplicates it.
+3. It unions that set with the always-invalidate paths — every supported language's home page plus
+   `sitemap.xml` and `robots.txt` — built from `routing.mjs`'s `alwaysInvalidatePaths(supportedLangs)`,
+   since these routes are affected by changes the panel does not track (template/layout/page edits)
+   and are cheap enough to invalidate unconditionally on every publish.
+4. Output: one flat, deduplicated path list consumed directly by the invalidation step (no more
+   separate entries/shell lists — the panel already emits ready-to-use paths, exact or wildcard).
 
-This script's exact diffing mechanism (git-based vs. a build-time manifest comparison) is an implementation decision made and documented in the Decisions Log during Stage 4 below — it is deliberately left open here pending a first working version.
+The workflow only ever *reads* the manifest; it never writes to it (no cut marker, no cleanup) —
+publish cuts are exclusively a manual action from the panel, so the developer's local clone never
+needs to pull a CI-authored commit before the next push. (Supersedes the git-diff-based
+`detect-changed-views.mjs` — see Decisions Log.)
 
 ---
 
@@ -321,21 +333,35 @@ Feature: Category-specific layouts and cover images
 ### Feature: Incremental publish pipeline
 
 ```gherkin
-Feature: Changed-views detection limits rebuild and invalidation scope
+Feature: Manifest-driven invalidation limits scope to what changed since the last publish
 
-  Scenario: New post only affects its own entry and directly related shell pages
-    Given a new post is added with categoryId "fisica" and tagIds ["relatividad"]
-    When detect-changed-views.mjs runs
-    Then the entries path list contains only the new post's path
-    And the shell path list contains home, historico, the "fisica" category listing,
-      the "relatividad" tag listing, the post's author listing, sitemap.xml, and rss.xml
-    And no unrelated category or tag listing is included
+  Scenario: Only paths added since the last cut are invalidated
+    Given the manifest contains paths A and B, then a cut marker, then paths C and D
+    When compute-invalidation-paths.mjs runs
+    Then the invalidation list contains C and D
+    And it does not contain A or B
 
-  Scenario: Editing only a category's title invalidates its listing without touching posts
-    Given categories.json is edited for "fisica" with no post changes
-    When detect-changed-views.mjs runs
-    Then the entries path list is empty
-    And the shell path list contains the "fisica" category listing page
+  Scenario: No cut marker yet treats the whole manifest as pending
+    Given the manifest contains paths A and B with no cut marker
+    When compute-invalidation-paths.mjs runs
+    Then the invalidation list contains A and B
+
+  Scenario: Duplicate paths collapse to one entry
+    Given the manifest contains path A twice after the last cut marker
+    When compute-invalidation-paths.mjs runs
+    Then the invalidation list contains A exactly once
+
+  Scenario: Always-invalidate paths are included even with an empty pending batch
+    Given the manifest has no lines after the last cut marker
+    When compute-invalidation-paths.mjs runs
+    Then the invalidation list still contains every supported language's home page,
+      sitemap.xml, and robots.txt
+
+  Scenario: Only the most recent cut marker matters
+    Given the manifest contains a cut marker, path A, another cut marker, then path B
+    When compute-invalidation-paths.mjs runs
+    Then the invalidation list contains B
+    And it does not contain A
 ```
 
 ---
@@ -361,16 +387,16 @@ Feature: Changed-views detection limits rebuild and invalidation scope
 | `T-VAL-11` | Exits 0 and prints a summary when everything is valid | fully consistent fixture set | Exit code 0; summary line with entity counts |
 | `T-VAL-12` | Reports every violation found, not just the first | fixture with 3 independent violations | 3 error entries in output |
 
-### `detect-changed-views.mjs`
+### `compute-invalidation-paths.mjs`
 
 | Test ID | Objective | Input | Expected output |
 |---|---|---|---|
-| `T-DIFF-01` | New post maps to its own entries path only | one added post file | entries list = [that post's path] |
-| `T-DIFF-02` | New post maps to its directly related shell paths | added post with categoryId X, tagIds [Y], authorId Z | shell list includes home, historico, category X listing, tag Y listing, author Z listing, sitemap, rss |
-| `T-DIFF-03` | New post does not affect unrelated category/tag listings | added post with categoryId "fisica" | shell list excludes listings for unrelated categories/tags |
-| `T-DIFF-04` | Edited post updates both its entry and its shell dependents | modified post file, categoryId unchanged | entries list = [that post]; shell list = its aggregators |
-| `T-DIFF-05` | Editing a category/tag/author JSON with no post changes affects only its own listing | modified categories.json entry | entries list empty; shell list = that entity's listing page |
-| `T-DIFF-06` | Removed post is included in invalidation even though no new file is produced | deleted post file | shell list includes its former aggregators; entries invalidation includes its now-stale path |
+| `T-INV-01` | Only lines after the last cut marker are included | manifest with paths before and after a cut marker | output contains only post-cut paths |
+| `T-INV-02` | No cut marker present treats the entire file as pending | manifest with paths, no cut marker line | output contains every path in the file |
+| `T-INV-03` | Duplicate paths collapse to a single entry | same path repeated 3 times after the last cut | output contains that path once |
+| `T-INV-04` | Always-invalidate paths are included even when nothing is pending | manifest with no lines after the last cut marker | output contains exactly the always-invalidate set |
+| `T-INV-05` | Cut marker lines never appear in the output | manifest with one or more `---YYYY/MM/DD` lines | output contains no line matching the cut-marker pattern |
+| `T-INV-06` | Only the most recent cut marker is honored | manifest with two cut markers and paths interleaved | output contains only paths after the last marker |
 
 ### Astro hreflang builder (pure function, testable outside Astro's build)
 
@@ -406,6 +432,8 @@ Stages are executed in strict order. Claude Code stops after each stage and wait
 | 5 — Documentation | Done | `blog/claude.md`, `blog/readme.md`, finalized Decisions Log |
 
 Resolved (2026-07-07): the provisional `entries`/`shell` CloudFront partition — which could not be expressed cleanly for real serving — was removed by consolidating to a single bucket + one behavior, with an edge directory-index rewrite. See the Decisions Log.
+
+Resolved (2026-07-10): the git-diff-based `detect-changed-views.mjs` (Stage 4) — which could not see changes outside `src/content` (templates, layouts, pages), silently skipping their invalidation — was replaced by a panel-authored manifest with a manual publish-cut marker; the CI script is now `compute-invalidation-paths.mjs`. See the Decisions Log.
 
 ---
 
@@ -513,3 +541,8 @@ Resolved (2026-07-07): the provisional `entries`/`shell` CloudFront partition �
 | 2026-07-06 | (Stage 2) Tests run on Node's built-in test runner (`node:test`), fixtures are collection-shaped JS objects (`{ id, data }`), not re-parsed content files | Zero test dependencies; fixtures match `getCollection()`'s exact output shape, so the validator is exercised on the same structure it sees in CI without reintroducing a Markdown/JSON parser the Decisions Log forbids |
 | 2026-07-06 | (Stage 2) The exact CI invocation of `validate-integrity.mjs` (how Astro collections reach the script in the pipeline) is finalized with the workflow in Stage 4 | `astro:content` is a build-only virtual module; the concrete run mechanism is best pinned against the real workflow, mirroring how `detect-changed-views.mjs`'s diffing mechanism is deferred to Stage 4. Stage 2's deliverable is the tested check logic and schema |
 | 2026-07-06 | (Stage 3) Collections use Astro 5's Content Layer `glob()` loader instead of the legacy `type: 'content'` / `type: 'data'` | `slug` is a reserved field in classic content collections (Astro strips it from `data`), which broke the spec's `slug: z.string()` post schema at `astro sync`. The `glob` loader (the idiomatic form in "Astro latest") makes `slug` a normal field, preserving the canonical Domain Model and the exact Zod schema; only the collection *definition* mechanism changed |
+| 2026-07-10 | `detect-changed-views.mjs`'s git-diff mechanism is retired; invalidation paths are now sourced from a manifest the panel writes directly at write time (`panel/spec.md`) | The git-diff wrapper could only see `src/content`/`site.config.json` changes, so template/layout/page edits produced zero invalidation paths — silently relying on the HTML's short TTL to self-heal. The panel already knows the exact paths a change affects the moment it happens, without needing `git show` to recover a deleted file's prior metadata |
+| 2026-07-10 | The manifest (`invalidation-manifest.txt`, repo root, outside `blog/`) uses a plain-text, append-only format: literal CloudFront paths, one per line, plus manually-inserted cut-marker lines (`---YYYY/MM/DD`) that delimit "already published" from "pending" | Keeping the manifest outside `blog/` means editing it (including inserting a cut marker or manually trimming old entries) never matches the `blog/frontend/**` path filter and so never re-triggers `deploy-blog.yml`. A leading `---` is reserved for markers because no CloudFront path can start with those characters, so parsing is unambiguous |
+| 2026-07-10 | The publish cut is a **manual** action (a button in the panel that appends the cut-marker line), not something CI writes back after a successful deploy | Alternatives considered: CI committing the cut marker back to `main` (rejected — needs bot identity/write permissions and forces a `git pull` before the developer's next local push); external state in GitHub Actions cache or a dedicated S3 object (rejected — extra infrastructure/reliability surface, e.g. cache eviction or public exposure risk via the CDN, for no benefit over a manual click). The manual button's only failure mode — forgetting to click it — over-invalidates on the next publish, never under-invalidates, which was already the accepted worst case for manual manifest edits |
+| 2026-07-10 | `routing.mjs` gains `alwaysInvalidatePaths(supportedLangs)`: every language's home page plus `sitemap.xml`/`robots.txt`, unioned into every publish's invalidation list regardless of the manifest's content | These are the only routes affected by changes the panel cannot see (template/layout/page edits made directly in code); today that's a fixed, cheap set (4 paths), so unconditionally invalidating them removes the need for any git-diff-based "did non-content change" check. Documented rule: any future root-level or non-panel-tracked view must be added here immediately |
+| 2026-07-10 | `compute-invalidation-paths.mjs` replaces `detect-changed-views.mjs`; its git-based wrapper and `T-DIFF-01…06` are retired in favor of a pure manifest-parsing core (`T-INV-01…06`) | The script's job changes from reconstructing routes via `git diff`/`git show` to parsing an already-computed manifest — no git plumbing left to test, so the old git-wrapper tests no longer apply |

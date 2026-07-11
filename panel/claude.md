@@ -15,10 +15,10 @@ intended single write path into a local `blog/frontend` checkout.
   order; stop and wait for authorization between them. Stages 1–4 are delivered (see the panel
   spec "Delivery status"); further changes are scoped work, not new stages, unless the developer
   says so.
-- **TDD gate.** Backend tests and their definitions (`T-INT-*`, `T-FS-*`, `T-FIELD-*`) are not
-  created or modified without explicit developer authorization. Write/adjust tests first, see them
-  fail, then implement. (The UI stage has no test IDs — it is verified manually against a running
-  panel.)
+- **TDD gate.** Backend tests and their definitions (`T-INT-*`, `T-FS-*`, `T-FIELD-*`,
+  `T-MANIFEST-*`) are not created or modified without explicit developer authorization.
+  Write/adjust tests first, see them fail, then implement. (The UI stage has no test IDs — it is
+  verified manually against a running panel.)
 - **Conflict detection.** If a change contradicts a spec or a prior Decisions Log entry, stop,
   alert the developer, and — only if confirmed — update the documentation first, then the code.
 - **Visual design source.** `panel/design/` (a Claude Design handoff bundle: `Blog Panel.dc.html` +
@@ -55,14 +55,23 @@ intended single write path into a local `blog/frontend` checkout.
 - **`lib/store.ts` is the only content I/O layer.** Every route mutation goes through the store,
   which reads current content, builds the `ContentSnapshot`, runs `integrity.ts`, then persists via
   `fsWriter.ts` (including the tag-deletion cascade). Post id is `"{lang}:{slug}"` (one URL-safe
-  segment; posts have no standalone id).
+  segment; posts have no standalone id). Every successful mutation also appends the CloudFront
+  paths it affects to the shared invalidation manifest — see below.
+- **`lib/invalidationPaths.ts` builds CloudFront invalidation paths** (post/taxonomy shell +
+  wildcards) and the manifest's append/de-dup/cut-marker mechanics — pure, filesystem-free, unit
+  tested (`T-MANIFEST-*`). It **deliberately duplicates** the route/wildcard shape already in
+  `blog/frontend/src/lib/routing.mjs` rather than importing it: `panel/` and `blog/` stay fully
+  independent subprojects. `lib/store.ts` owns the actual manifest file I/O (read/write), building
+  a slug catalog from the content on disk and computing paths **before** any delete (the entity's
+  pre-deletion state must be captured while it's still in memory).
 - **No web framework:** `lib/router.ts` is a ~90-line `node:http` router. Route tests boot the
   server on an ephemeral loopback port and use real `fetch` against a temp fixture content dir —
   never the real blog content.
 - **Backend is TypeScript run on Node's native TS execution** (`node --test`/`node main.ts`); use
   only erasable type syntax and `.ts` import extensions.
 - **Paths from `.env` only:** `BLOG_CONTENT_PATH` = `blog/frontend/src/content`,
-  `BLOG_CONFIG_PATH` = `blog/frontend/src`, `PANEL_PORT`. Never hardcode a path.
+  `BLOG_CONFIG_PATH` = `blog/frontend/src`, `INVALIDATION_MANIFEST_PATH` = the repo-root
+  invalidation manifest, `PANEL_PORT`. Never hardcode a path.
 
 ### Frontend (`panel/frontend`)
 
@@ -79,11 +88,15 @@ intended single write path into a local `blog/frontend` checkout.
 - **PostEditor** gates publish on a cover image + non-empty alt; offers a translation-link selector
   limited to pieces missing a version in the target language; shows a non-blocking category-mismatch
   warning. Tags are chosen from existing tags only (created in the Tags view).
+- **"Marcar publicación"** (`App.vue`'s topbar, `api.publishCut()` → `POST /api/publish-cut`) is a
+  manual, cross-view action, not tied to any single content entity — the panel has no visibility
+  into GitHub Actions, so this is the developer's own assertion that the last push actually
+  deployed. Click it only after confirming that.
 
 ## Verifying changes
 
-- Backend tests: `cd panel/backend && npm test` (Node's runner; `T-INT-*`, `T-FS-*`, `T-FIELD-*`
-  + route tests) and `./node_modules/.bin/tsc --noEmit`.
+- Backend tests: `cd panel/backend && npm test` (Node's runner; `T-INT-*`, `T-FS-*`, `T-FIELD-*`,
+  `T-MANIFEST-*` + route tests) and `./node_modules/.bin/tsc --noEmit`.
 - Frontend: `cd panel/frontend && npm run build` (`vue-tsc --noEmit` + `vite build`).
 - Live: run the backend against a **copy** of a blog checkout (never mutate the real content in an
   exploratory run) and the Vite dev server; verify the relevant Gherkin scenarios by hand.

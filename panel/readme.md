@@ -24,6 +24,7 @@ The backend operates against a local `blog/frontend` checkout, configured via `.
 |---|---|---|
 | `BLOG_CONTENT_PATH` | `blog/frontend/src/content` — `posts/` and the `categories`/`tags`/`authors` JSON | `../../blog/frontend/src/content` |
 | `BLOG_CONFIG_PATH` | `blog/frontend/src` — where `site.config.json` lives | `../../blog/frontend/src` |
+| `INVALIDATION_MANIFEST_PATH` | the CloudFront invalidation manifest — repo root, outside `blog/` | `../../invalidation-manifest.txt` |
 | `PANEL_PORT` | localhost port for the backend | `4321` |
 
 > The panel writes real content files. Point it at a working copy you are comfortable editing, and
@@ -90,6 +91,21 @@ the app's API calls hit nothing (the proxy targets the wrong port). Both default
 - **Preview transparency:** the Markdown preview is approximate (rendered in a sandboxed iframe);
   the published HTML is produced by Astro at blog build time.
 
+## CloudFront invalidation
+
+Every post/category/tag/author create, edit, or delete appends the CloudFront paths it affects to
+`invalidation-manifest.txt` (repo root, outside `blog/`) — de-duplicated against whatever is
+already pending since the last publish. This replaces `blog/`'s old git-diff-based change
+detection: the panel already knows exactly what changed (and, for deletes, its state right before
+removal), so nothing needs to be reconstructed from git history afterward.
+
+After you push and confirm a deploy actually succeeded (check the GitHub Actions run or the live
+site — the panel has no visibility into either), click **"Marcar publicación"** in the topbar. It
+appends a `---YYYY/MM/DD` cut marker to the manifest; the next CI run only invalidates what's
+pending after the most recent marker. Forgetting to click it just means the next publish
+invalidates a few extra paths — never too few. The manifest file can also be trimmed by hand at any
+time (e.g. to drop stale entries from an abandoned change); commit it like any other file.
+
 ## Tests and their definitions
 
 Test IDs and expectations live in `spec.md` (Unit Test Definitions). Implementations:
@@ -97,5 +113,6 @@ Test IDs and expectations live in `spec.md` (Unit Test Definitions). Implementat
 - `backend/lib/__tests__/integrity.test.ts` — `T-INT-01…14`
 - `backend/lib/__tests__/fsWriter.test.ts` — `T-FS-01…03`
 - `backend/lib/__tests__/fieldValidation.test.ts` — `T-FIELD-01…04`
+- `backend/lib/__tests__/invalidationPaths.test.ts` — `T-MANIFEST-01…08`
 - `backend/routes/__tests__/*.test.ts` — route-level tests exercising the panel Gherkin scenarios
   over real HTTP against a temp fixture content directory.

@@ -2,9 +2,7 @@
  * Reads the committed content files (posts `.md`, taxonomy `.json`) from a
  * content directory into the same `{ id, data }` shape Astro's `getCollection()`
  * produces, so the pure integrity checks run identically in CI (standalone
- * Node) and in tests. This is the single shared raw reader used by both CI
- * scripts — `validate-integrity.mjs` (this loader) and `detect-changed-views.mjs`
- * (its frontmatter parsing) — so there is one raw parser, not two.
+ * Node) and in tests. Used by `validate-integrity.mjs`.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';

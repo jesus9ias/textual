@@ -1,0 +1,8 @@
+/en/how-black-holes-form
+/en/
+/en/historico/*
+/sitemap.xml
+/en/rss.xml
+/en/categoria/physics/*
+/en/tag/astrophysics/*
+/en/autor/ignacio-garza/*

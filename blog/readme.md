@@ -5,7 +5,8 @@ priorities. No server runtime, no database: all content is Markdown + JSON commi
 repository and produced by `../panel/`. This subproject has two parts:
 
 - **`frontend/`** — the Astro site and the content pipeline scripts.
-- **`infra/`** — a single AWS CDK stack (S3 ×2 + CloudFront + root redirect), deployed from local.
+- **`infra/`** — a single AWS CDK stack (one S3 bucket + CloudFront + root redirect), deployed
+  from local.
 
 The authoritative contract is [`spec.md`](./spec.md) (and the monorepo [`../spec.md`](../spec.md)).
 Working rules for Claude Code are in [`claude.md`](./claude.md).
@@ -31,7 +32,7 @@ npm run preview         # serve the built site
 ### Scripts
 
 ```bash
-npm test                # Node's test runner: T-VAL-*, T-I18N-*, T-DIFF-*
+npm test                # Node's test runner: T-VAL-*, T-I18N-*, T-INV-*
 npm run sync            # astro sync (regenerate collection types, validate frontmatter)
 npm run validate-integrity   # referential-integrity gate (runs standalone)
 ```
@@ -76,14 +77,21 @@ Two independent paths, by design:
 
 `infra/` is deployed manually with `cdk deploy` and is **never** touched by CI. See
 [`infra/readme.md`](./infra/readme.md). After deploy, copy the stack outputs
-(`EntriesBucketName`, `ShellBucketName`, `DistributionId`) into the GitHub configuration below.
+(`SiteBucketName`, `DistributionId`) into the GitHub configuration below.
 
 ### Content (CI, on every publish)
 
 `.github/workflows/deploy-blog.yml` (at the repo root) runs on push to `main` under the path
-filter `blog/frontend/**`. Steps: `astro sync` → `validate-integrity` → `detect-changed-views`
-→ `astro build` → S3 sync to the single site bucket (non-HTML long/immutable `Cache-Control`, HTML
-short) → scoped CloudFront invalidation.
+filter `blog/frontend/**`. Steps: `astro sync` → `validate-integrity` → `astro build` → S3 sync to
+the single site bucket (non-HTML long/immutable `Cache-Control`, HTML short) →
+`compute-invalidation-paths` (reads `invalidation-manifest.txt` at the repo root, written by
+`../panel/`) → CloudFront invalidation.
+
+CloudFront invalidation is no longer computed from `git diff`. `../panel/` appends the CloudFront
+paths each content change affects directly to `invalidation-manifest.txt` (repo root, outside
+`blog/`, tracked in git); a "Marcar publicación" button in the panel appends a `---YYYY/MM/DD` cut
+marker after you confirm a push actually deployed. CI only ever reads what's pending since the last
+cut — see `panel/spec.md`'s Publish Invalidation Manifest and this repo's `spec.md` Decisions Log.
 
 Configure in the GitHub repository (as secrets):
 
@@ -100,4 +108,4 @@ Test IDs and expectations live in `spec.md` (Unit Test Definitions). Implementat
 
 - `frontend/scripts/__tests__/validate-integrity.test.mjs` — `T-VAL-01…12`
 - `frontend/src/lib/__tests__/hreflang.test.mjs` — `T-I18N-01…03`
-- `frontend/scripts/__tests__/detect-changed-views.test.mjs` — `T-DIFF-01…06`
+- `frontend/scripts/__tests__/compute-invalidation-paths.test.mjs` — `T-INV-01…06`

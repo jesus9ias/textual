@@ -47,6 +47,19 @@ export function homePath(lang) {
   return `/${lang}/`;
 }
 
+/**
+ * CloudFront paths invalidated on every publish regardless of the manifest's
+ * content: every language's home page plus the root SEO surfaces. These are
+ * the only routes affected by changes the panel does not track (template,
+ * layout, or page edits made directly in code) — document any new
+ * root-level or non-panel-tracked view here immediately.
+ * @param {readonly string[]} supportedLangs
+ * @returns {string[]}
+ */
+export function alwaysInvalidatePaths(supportedLangs) {
+  return [...supportedLangs.map(homePath), ROOT_ROUTES.sitemap, ROOT_ROUTES.robots];
+}
+
 /** Path of a paginated aggregator page under `[lang]`. */
 export function historicoPath(lang, page) {
   return `/${lang}/${ROUTE_SEGMENTS.historico}/${page}`;

@@ -3,6 +3,11 @@
  * Every mutating method runs the request through `integrity.ts` before touching
  * the filesystem via `fsWriter.ts`. Pure integrity logic stays in `integrity.ts`;
  * this module adds the I/O (reading the current content, persisting changes).
+ *
+ * Every successful mutation also appends the CloudFront paths it affects to the
+ * shared invalidation manifest (`invalidationPaths.ts` builds the paths; this
+ * module owns reading/writing the manifest file itself — see panel/spec.md's
+ * Publish Invalidation Manifest).
  */
 import { readFile, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -17,11 +22,24 @@ import {
   generateTranslationId,
 } from './integrity.ts';
 import { dataFilePath, writeFileAtomic, writePostFile } from './fsWriter.ts';
+import {
+  postInvalidationPaths,
+  taxonomyInvalidationPaths,
+  appendPaths,
+  appendCutMarker,
+} from './invalidationPaths.ts';
+import type { InvalidationCatalog, TaxonomyChangeInput } from './invalidationPaths.ts';
 import type { ContentSnapshot, PostFrontmatter, PostPayload, PostRef } from './types.ts';
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 const TAXONOMIES = ['categories', 'tags', 'authors'] as const;
 type Taxonomy = (typeof TAXONOMIES)[number];
+
+const KIND_BY_COLLECTION: Record<Taxonomy, TaxonomyChangeInput['kind']> = {
+  categories: 'category',
+  tags: 'tag',
+  authors: 'author',
+};
 
 interface PostFile {
   filePath: string;
@@ -76,9 +94,20 @@ export interface Store {
   updateAuthor(id: string, body: any): Promise<TaxonomyResult>;
   deleteAuthor(id: string): Promise<DeleteResult>;
   authorUsage(id: string): Promise<{ usageCount: number; posts: string[] }>;
+
+  /** Appends a `---YYYY/MM/DD` cut marker to the invalidation manifest. */
+  publishCut(): Promise<void>;
 }
 
-export function createStore({ contentRoot, configRoot }: { contentRoot: string; configRoot: string }): Store {
+export function createStore({
+  contentRoot,
+  configRoot,
+  manifestPath,
+}: {
+  contentRoot: string;
+  configRoot: string;
+  manifestPath: string;
+}): Store {
   const postId = (fm: { lang: string; slug: string }) => `${fm.lang}:${fm.slug}`;
 
   async function walk(dir: string): Promise<string[]> {
@@ -172,6 +201,51 @@ export function createStore({ contentRoot, configRoot }: { contentRoot: string; 
     return rest;
   };
 
+  // --- invalidation manifest -------------------------------------------------
+
+  async function readManifestLines(): Promise<string[]> {
+    try {
+      const text = await readFile(manifestPath, 'utf8');
+      const lines = text.split('\n').map((line) => line.trimEnd());
+      // Drop the artifact empty element `split` produces from the file's own
+      // trailing newline — otherwise a blank line accumulates on every write.
+      if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+      return lines;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      return [];
+    }
+  }
+
+  async function writeManifestLines(lines: string[]): Promise<void> {
+    await writeFileAtomic(manifestPath, lines.length > 0 ? `${lines.join('\n')}\n` : '');
+  }
+
+  /** Appends paths to the manifest, de-duplicated against what's pending since the last cut. */
+  async function recordInvalidation(paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
+    const current = await readManifestLines();
+    await writeManifestLines(appendPaths(current, paths));
+  }
+
+  /** Builds a category/tag slug catalog from the content currently on disk. */
+  async function buildCatalog(): Promise<InvalidationCatalog> {
+    const [categories, tags] = await Promise.all([readTaxonomy('categories'), readTaxonomy('tags')]);
+    const categoryMap = new Map(categories.map((c) => [c.id, c.data]));
+    const tagMap = new Map(tags.map((t) => [t.id, t.data]));
+    return {
+      categorySlug: (id, lang) => categoryMap.get(id)?.[lang]?.slug,
+      tagSlug: (id, lang) => tagMap.get(id)?.[lang]?.slug,
+    };
+  }
+
+  /** Records the invalidation paths for a category/tag/author-only change (no post write). */
+  async function recordTaxonomyInvalidation(collection: Taxonomy, id: string, catalog: InvalidationCatalog): Promise<void> {
+    const langs = await supportedLangs();
+    const paths = taxonomyInvalidationPaths({ kind: KIND_BY_COLLECTION[collection], id }, catalog, langs);
+    await recordInvalidation(paths);
+  }
+
   async function listTaxonomy(collection: Taxonomy) {
     return (await readTaxonomy(collection)).map((entry) => ({ id: entry.id, ...entry.data }));
   }
@@ -187,6 +261,7 @@ export function createStore({ contentRoot, configRoot }: { contentRoot: string; 
     }
     if (await fileExists(file)) return { ok: false, status: 409, error: 'Already exists.' };
     await writeJson(file, stripId(body));
+    await recordTaxonomyInvalidation(collection, id, await buildCatalog());
     return { ok: true, id };
   }
 
@@ -199,6 +274,7 @@ export function createStore({ contentRoot, configRoot }: { contentRoot: string; 
     }
     if (!(await fileExists(file))) return { ok: false, status: 404, error: 'Not found.' };
     await writeJson(file, stripId(body ?? {}));
+    await recordTaxonomyInvalidation(collection, id, await buildCatalog());
     return { ok: true, id };
   }
 
@@ -213,7 +289,15 @@ export function createStore({ contentRoot, configRoot }: { contentRoot: string; 
     if (!guard.ok) return { ok: false, status: 409, usageCount: guard.usageCount };
     const file = dataFilePath(contentRoot, collection, id);
     if (!(await fileExists(file))) return { ok: false, status: 404, error: 'Not found.' };
+
+    // Paths are computed from the pre-deletion state — once the file is gone,
+    // its slug can no longer be resolved.
+    const catalog = await buildCatalog();
+    const langs = await supportedLangs();
+    const paths = taxonomyInvalidationPaths({ kind: KIND_BY_COLLECTION[collection], id }, catalog, langs);
+
     await rm(file, { force: true });
+    await recordInvalidation(paths);
     return { ok: true };
   }
 
@@ -275,6 +359,8 @@ export function createStore({ contentRoot, configRoot }: { contentRoot: string; 
       }
 
       await writePostFile(contentRoot, full);
+      const catalog = await buildCatalog();
+      await recordInvalidation(postInvalidationPaths(full, catalog));
       return { ok: true, id: postId(full), translationId, warning };
     },
 
@@ -295,13 +381,29 @@ export function createStore({ contentRoot, configRoot }: { contentRoot: string; 
 
       const written = await writePostFile(contentRoot, full);
       if (written !== existing.filePath) await rm(existing.filePath, { force: true });
+
+      // Invalidate both the old identity (in case lang/slug/category/tags/author
+      // changed, its former aggregators go stale too) and the new one.
+      const catalog = await buildCatalog();
+      const paths = new Set([
+        ...postInvalidationPaths(existing.frontmatter, catalog),
+        ...postInvalidationPaths(full, catalog),
+      ]);
+      await recordInvalidation([...paths]);
       return { ok: true, id: postId(full), translationId, warning: false };
     },
 
     async deletePost(id) {
       const post = (await readAllPosts()).find((p) => p.id === id);
       if (!post) return { ok: false, status: 404, error: 'Not found.' };
+
+      // Paths are computed from the pre-deletion state, held in memory here —
+      // no history reconstruction needed.
+      const catalog = await buildCatalog();
+      const paths = postInvalidationPaths(post.frontmatter, catalog);
+
       await rm(post.filePath, { force: true });
+      await recordInvalidation(paths);
       return { ok: true };
     },
 
@@ -319,17 +421,21 @@ export function createStore({ contentRoot, configRoot }: { contentRoot: string; 
       if (!(await fileExists(file))) return { ok: false, status: 404, error: 'Not found.' };
       const posts = await readAllPosts();
       const plan = planTagDeletion(id, posts.map(toPostRef));
+
+      const catalog = await buildCatalog();
+      const langs = await supportedLangs();
+      const paths = new Set(taxonomyInvalidationPaths({ kind: 'tag', id }, catalog, langs));
+
       // Cascade: rewrite each affected post without the tag, then remove the tag file.
       for (const p of posts) {
         if (!(p.frontmatter.tagIds ?? []).includes(id)) continue;
-        const full: PostPayload = {
-          ...p.frontmatter,
-          tagIds: (p.frontmatter.tagIds ?? []).filter((t) => t !== id),
-          body: p.body,
-        };
+        const updatedTagIds = (p.frontmatter.tagIds ?? []).filter((t) => t !== id);
+        const full: PostPayload = { ...p.frontmatter, tagIds: updatedTagIds, body: p.body };
         await writePostFile(contentRoot, full);
+        for (const invalidationPath of postInvalidationPaths(full, catalog)) paths.add(invalidationPath);
       }
       await rm(file, { force: true });
+      await recordInvalidation([...paths]);
       return { ok: true, usageCount: plan.usageCount };
     },
 
@@ -338,5 +444,10 @@ export function createStore({ contentRoot, configRoot }: { contentRoot: string; 
     updateAuthor: (id, body) => updateTaxonomy('authors', id, body),
     deleteAuthor: (id) => guardedDelete('authors', id, 'authorId'),
     authorUsage: (id) => usage(id, 'authorId'),
+
+    async publishCut() {
+      const lines = await readManifestLines();
+      await writeManifestLines(appendCutMarker(lines, new Date()));
+    },
   };
 }

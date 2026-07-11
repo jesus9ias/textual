@@ -27,6 +27,7 @@ None.
 | Markdown live preview (own renderer, approximate) | Being the source of truth for final HTML — that's Astro, at blog build time |
 | Referential-integrity enforcement at write time | CI-level enforcement (that's `blog/frontend/scripts/validate-integrity.mjs`) |
 | Confirmation modals for destructive actions | Authentication/authorization (single local user, not needed) |
+| Generate CloudFront invalidation paths on every write, appended to the shared manifest (see Publish Invalidation Manifest) | Verifying a deploy succeeded — the publish-cut button is a manual assertion, not a CI signal |
 
 ---
 
@@ -129,8 +130,52 @@ All routes operate against the paths configured in `panel/backend/.env` (`BLOG_C
 | `/api/authors/:id` | PUT | Update author |
 | `/api/authors/:id` | DELETE | Delete author — blocked if referenced, per Integrity Rules |
 | `/api/authors/:id/usage` | GET | Returns the count and list of posts referencing this author |
+| `/api/publish-cut` | POST | Appends a `---YYYY/MM/DD` cut marker to the invalidation manifest |
 
 Every mutating route runs its request body through `lib/integrity.ts` before touching the filesystem via `lib/fsWriter.ts`.
+
+---
+
+## Publish Invalidation Manifest
+
+The panel is the source of the CloudFront invalidation list consumed by `blog/spec.md`'s
+`compute-invalidation-paths.mjs` — see that spec for the CI-side contract. This section defines the
+panel's write-side half.
+
+### Path file
+
+`INVALIDATION_MANIFEST_PATH` (`panel/backend/.env`) points at `invalidation-manifest.txt`, at the
+**repository root** — deliberately outside `blog/`, so that editing it (including inserting a cut
+marker) never matches `deploy-blog.yml`'s `blog/frontend/**` path filter and cannot re-trigger a
+deploy. Format: one CloudFront path per line; a line starting with `---` is a cut marker
+(`---YYYY/MM/DD`) rather than a path.
+
+### Path generation (`lib/invalidationPaths.ts`)
+
+A pure module, **independent from `blog/frontend/src/lib/routing.mjs`** (deliberately duplicated,
+not imported or shared — see Decisions Log), computing the CloudFront paths a post/category/tag/author
+change affects:
+
+- A post create/update/delete always emits its own exact path (`/{lang}/{slug}`), plus its shell:
+  home, `historico` wildcard, its category's wildcard listing, each of its tags' wildcard listings,
+  its author's wildcard listing, `sitemap.xml`, and that language's `rss.xml`.
+- A category/tag/author create/update (no post change) emits only its own wildcard listing
+  path(s), for every supported language.
+- A delete of any of the above computes paths from the entity's state **before** the write — the
+  panel already holds this in memory, unlike a git-history reconstruction.
+
+### Manifest write (`lib/store.ts`)
+
+Every mutating route appends its computed paths to the manifest after a successful write, skipping
+any path that is already present among the lines **after the last cut marker** (de-duplication —
+no cut marker means the whole file is checked).
+
+### Publish cut
+
+`POST /api/publish-cut` appends a `---YYYY/MM/DD` line (today's date) to the manifest. Triggered by
+a "Marcar publicación" button in the panel UI (a manual action; the panel has no visibility into
+GitHub Actions, so this is the developer's own assertion that the last push actually deployed
+successfully — see Decisions Log).
 
 ---
 
@@ -279,6 +324,35 @@ Feature: Publishing a post writes validated Markdown
     And the write is atomic (temp file then rename)
 ```
 
+### Feature: Invalidation manifest generation
+
+```gherkin
+Feature: Every write appends the paths it affects to the invalidation manifest
+
+  Scenario: Publishing a new post appends its entry and shell paths
+    Given a new post is published with categoryId "fisica" and tagIds ["relatividad"]
+    When the write succeeds
+    Then the manifest gains the post's own path
+    And the manifest gains home, historico, the "fisica" category listing, the "relatividad" tag
+      listing, the post's author listing, sitemap.xml, and rss.xml for that language
+
+  Scenario: Deleting a category appends its listing path using pre-deletion state
+    Given category "fisica" is being deleted (already unblocked, unreferenced)
+    When the deletion succeeds
+    Then the manifest gains the "fisica" category listing path for every supported language
+
+  Scenario: A path already pending since the last cut is not duplicated
+    Given the manifest already contains a path after the last cut marker
+    When a later write in the same session would emit that same path
+    Then the manifest still contains that path exactly once
+
+  Scenario: Marking a publish appends a dated cut marker
+    Given the developer clicks "Marcar publicación" after confirming a deploy succeeded
+    When the action completes
+    Then the manifest gains a line starting with "---" followed by today's date
+    And no existing line in the manifest is modified or removed
+```
+
 ### Feature: Preview accuracy disclosure
 
 ```gherkin
@@ -322,6 +396,19 @@ Feature: Live preview transparency
 | `T-FS-01` | Writes are atomic | simulated interruption mid-write | Original file remains intact, or new file is fully written — never partial |
 | `T-FS-02` | Path construction sanitizes slug/id/lang | payload with `../../etc/passwd`-style slug | Write rejected, path traversal blocked |
 | `T-FS-03` | Post write produces valid frontmatter YAML | valid post payload | Output file parses back to the same object via the Content Collections schema |
+
+### `lib/invalidationPaths.ts`
+
+| Test ID | Objective | Input | Expected output |
+|---|---|---|---|
+| `T-MANIFEST-01` | Post change emits its own exact path | post descriptor | output includes `/{lang}/{slug}` |
+| `T-MANIFEST-02` | Post change emits its full shell | post with categoryId X, tagIds [Y], authorId Z | output includes home, historico wildcard, category X wildcard, tag Y wildcard, author Z wildcard, sitemap.xml, rss.xml |
+| `T-MANIFEST-03` | Post change does not emit unrelated category/tag paths | post with categoryId "fisica" | output excludes other categories'/tags' wildcards |
+| `T-MANIFEST-04` | Category/tag/author-only change (no post) emits only its own listing | categories entity change | output = that entity's wildcard listing paths, one per supported language |
+| `T-MANIFEST-05` | Deleting an entity computes paths from its pre-deletion state | entity snapshot taken before removal | output matches what a live (non-deleted) entity of the same shape would emit |
+| `T-MANIFEST-06` | Appending a path already present since the last cut marker is a no-op | manifest with path A after the last cut; new write also emits path A | manifest unchanged (still contains A once) |
+| `T-MANIFEST-07` | Appending a new path when the manifest has no cut marker yet checks the whole file | manifest with path A, no cut marker; new write emits path A again | manifest unchanged (still once) |
+| `T-MANIFEST-08` | Publish-cut appends a correctly formatted marker line | current date | manifest gains one line matching `---YYYY/MM/DD`; all prior lines unchanged |
 
 ### Post name / field validation
 
@@ -426,3 +513,7 @@ Stages are executed in strict order. Claude Code stops after each stage and wait
 | 2026-07-06 | (Stage 3) A reusable `ConfirmModal` enforces the typed-word ("eliminar") gate for every delete, including posts; category/author deletes run a bulk-reassignment flow first; the tag-delete count is computed client-side from the posts list | One modal centralizes the monorepo's typed-confirmation rule. There is no tag-usage endpoint, so the count is derived from `GET /api/posts`. Reassignment updates each affected post via `PUT` before deletion is unblocked |
 | 2026-07-10 | Scoped restyle: the panel UI was rebuilt to match a Claude-Design mockup (dark glass theme, `Sora`/`IBM Plex Sans`) delivered as a handoff bundle. Category/author/tag CRUD, the typed-`"eliminar"` delete gate, the reassignment flow, the category slug-change warning, and the post editor's translation-link selector were all kept and re-skinned — the mockup itself omitted or simplified each of these (e.g. Authors/Tags were read-only cards/chips with no delete confirmation in the mockup) | The mockup was a simplified prototype exported from a design tool, not a functional spec; the developer confirmed (asked via 4 clarifying questions before implementing) that every existing security/functionality behavior should be preserved and merely re-themed, not dropped to match the prototype |
 | 2026-07-10 | Posts view gained client-side search (title/slug), language + category filters, and pagination (page size 6) — new relative to the original Stage 3 delivery | Directly requested by the mockup's design; implemented against the real `GET /api/posts` data (no backend change needed) rather than as mocked UI |
+| 2026-07-10 | The panel computes and appends CloudFront invalidation paths on every post/category/tag/author write, to a shared manifest (`invalidation-manifest.txt`, repo root) consumed by `blog/spec.md`'s `compute-invalidation-paths.mjs` | Replaces `blog/`'s git-diff-based change detection, which could not see non-content (template/page) changes and required reconstructing deleted entities' prior state via `git show`. The panel already has the exact paths and the pre-deletion state in memory at write time |
+| 2026-07-10 | `lib/invalidationPaths.ts` duplicates the route/wildcard-building logic that also exists in `blog/frontend/src/lib/routing.mjs`, rather than importing or extracting it to a shared package | Keeps `panel/` and `blog/` fully independent subprojects (no cross-subproject dependency has ever existed); this route-shape logic changes rarely, so the duplication cost is low next to the cost of introducing shared tooling/build wiring between two otherwise-independent packages |
+| 2026-07-10 | Manifest de-duplication checks only the lines after the last cut marker (whole file if none exists), by exact string match | Matches the git-diff-replacement's accepted risk profile: over-invalidating (a rare duplicate slipping through) is harmless, so exact-match dedup is sufficient — no need for wildcard-subsumption logic (the design never emits both an exact and a wildcard form of the same listing) |
+| 2026-07-10 | The publish cut (`POST /api/publish-cut` + a panel button) is a manual, developer-triggered action with no verification that a deploy actually succeeded | The panel has no visibility into GitHub Actions (it is local-only and git-unaware by design). A missed click only over-invalidates on the next publish — the same accepted worst case as manual manifest edits — so no verification mechanism is needed |

@@ -54,4 +54,7 @@ export const api = {
   deleteAuthor: (authorId: string) => request<{ usageCount?: number }>('DELETE', `/api/authors/${id(authorId)}`),
   authorUsage: (authorId: string) =>
     request<{ usageCount: number; posts: string[] }>('GET', `/api/authors/${id(authorId)}/usage`),
+
+  // Publish
+  publishCut: () => request('POST', '/api/publish-cut'),
 };

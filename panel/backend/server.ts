@@ -10,6 +10,7 @@ import { registerPosts } from './routes/posts.ts';
 import { registerCategories } from './routes/categories.ts';
 import { registerTags } from './routes/tags.ts';
 import { registerAuthors } from './routes/authors.ts';
+import { registerPublish } from './routes/publish.ts';
 
 export function createServer(store: Store): http.Server {
   const router = new Router();
@@ -17,5 +18,6 @@ export function createServer(store: Store): http.Server {
   registerCategories(router, store);
   registerTags(router, store);
   registerAuthors(router, store);
+  registerPublish(router, store);
   return http.createServer((req, res) => router.dispatch(req, res));
 }

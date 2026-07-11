@@ -11,7 +11,7 @@ spec wins over the blog spec.
   order; stop and wait for authorization between them. Stages 1–5 are delivered (see the blog
   spec "Delivery status"); further changes are scoped work, not new stages, unless the developer
   says so.
-- **TDD gate.** Tests and their definitions (`T-VAL-*`, `T-I18N-*`, `T-DIFF-*` in the blog spec)
+- **TDD gate.** Tests and their definitions (`T-VAL-*`, `T-I18N-*`, `T-INV-*` in the blog spec)
   are not created or modified without explicit developer authorization. Write/adjust tests first,
   see them fail, then implement.
 - **Conflict detection.** If a change contradicts a spec or a prior Decisions Log entry, stop,
@@ -59,21 +59,28 @@ spec wins over the blog spec.
   as `data-layout` in the output.
 - **SEO surfaces are mandatory deliverables**: `sitemap.xml.ts` and `robots.txt.ts` at the true
   root; `[lang]/rss.xml.ts` one feed per language; `hreflang` alternates from `hreflang.mjs`.
+- **CloudFront invalidation is manifest-driven, not git-diff-driven.** `panel/` writes the CloudFront
+  paths a change affects directly to `invalidation-manifest.txt` (repo root, outside `blog/`) at
+  write time — see `panel/spec.md`'s Publish Invalidation Manifest. `routing.mjs`'s
+  `alwaysInvalidatePaths(supportedLangs)` (every language's home + `sitemap.xml`/`robots.txt`) is
+  unioned in on every publish unconditionally, since those are the only routes affected by changes
+  the panel doesn't track (template/layout/page edits). Document any new root-level or
+  non-panel-tracked view there immediately.
 
-## CI scripts (the two-parser rule)
+## CI scripts
 
 - **`validate-integrity.mjs`** — pure `runIntegrityChecks(collections)` (tested) + a CLI loader
-  that reads committed files via the shared `scripts/lib/content-reader.mjs`. It runs as a
+  that reads committed files via `scripts/lib/content-reader.mjs`/`frontmatter.mjs`. It runs as a
   standalone Node step because `astro:content` is build-only and not importable from plain Node.
-- **`detect-changed-views.mjs`** — pure `computeChangedViews(changes)` (tested) + a **git-based**
-  wrapper (`git diff`/`git show`) that needs prior file versions Astro cannot provide. Paginated
-  aggregators are invalidated with wildcards; single pages exactly.
-- Both CI scripts share ONE raw reader (`content-reader.mjs` / `frontmatter.mjs`) — one parser,
-  not two. Do not reintroduce a second parser.
+  This is the only CI script that parses raw content — do not reintroduce a second parser.
+- **`compute-invalidation-paths.mjs`** — pure `computeInvalidationPaths(input)` (tested) + a thin
+  wrapper that reads `invalidation-manifest.txt` and `site.config.json`. It never writes to the
+  manifest (no cut marker, no cleanup) — publish cuts are exclusively a manual action from the
+  panel. Supersedes the git-diff-based `detect-changed-views.mjs` (see the Decisions Log).
 
 ## Verifying changes
 
-- Tests: `cd blog/frontend && npm test` (Node's runner; `T-VAL-*`, `T-I18N-*`, `T-DIFF-*`).
+- Tests: `cd blog/frontend && npm test` (Node's runner; `T-VAL-*`, `T-I18N-*`, `T-INV-*`).
 - Content gate: `node scripts/validate-integrity.mjs` (runs standalone).
 - Site: `npx astro sync && npx astro build`; inspect `dist/` to confirm Gherkin expectations.
 - Infra: `cd blog/infra && npm run typecheck && npm run synth`. `cdk deploy` is developer-only.

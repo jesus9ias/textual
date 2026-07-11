@@ -16,7 +16,11 @@ try {
 }
 
 const config = loadConfig();
-const store = createStore({ contentRoot: config.contentRoot, configRoot: config.configRoot });
+const store = createStore({
+  contentRoot: config.contentRoot,
+  configRoot: config.configRoot,
+  manifestPath: config.manifestPath,
+});
 const server = createServer(store);
 
 server.listen(config.port, '127.0.0.1', () => {

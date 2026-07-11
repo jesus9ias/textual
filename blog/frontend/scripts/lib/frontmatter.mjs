@@ -1,11 +1,8 @@
 /**
- * Minimal frontmatter reader for the CI change-detection script.
- *
- * Unlike `validate-integrity.mjs` (which consumes Astro's already-parsed
- * collections), `detect-changed-views.mjs` must read *raw* file contents —
- * including historical versions pulled from git for modified/removed posts,
- * which Astro's `getCollection()` cannot see. This module isolates that raw
- * parsing in one place.
+ * Minimal frontmatter reader shared by the CI scripts that need raw file
+ * contents rather than Astro's already-parsed collections (`getCollection()`
+ * is build-only and not importable from standalone Node). Used by
+ * `content-reader.mjs`, which backs `validate-integrity.mjs`.
  */
 import { parse as parseYaml } from 'yaml';
 
