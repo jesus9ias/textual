@@ -80,9 +80,12 @@ jobs:
           # Non-HTML (hashed assets, sitemap/rss/robots, images): long, immutable cache.
           aws s3 sync dist/ "s3://${SITE_BUCKET_NAME}/" --delete \
             --exclude "*.html" --cache-control "public,max-age=31536000,immutable"
-          # HTML pages: short cache so they revalidate quickly after a publish.
+          # HTML pages: short browser cache (bounds staleness for a returning
+          # visitor, since CloudFront invalidation never reaches an already-cached
+          # browser copy) but a long CDN cache (invalidation, not natural TTL
+          # expiry, is what keeps the edge fresh now — see blog/spec.md Decisions Log).
           aws s3 sync dist/ "s3://${SITE_BUCKET_NAME}/" --delete \
-            --exclude "*" --include "*.html" --cache-control "public,max-age=60,s-maxage=300"
+            --exclude "*" --include "*.html" --cache-control "public,max-age=60,s-maxage=604800"
 
       # Step 7 — invalidation limited to the paths identified in step 3
       - name: Invalidate CloudFront
