@@ -13,7 +13,7 @@ Working rules for Claude Code are in [`claude.md`](./claude.md).
 
 ## Requirements
 
-- Node.js 20+ and npm
+- Node.js 24+ and npm
 - For infra only: AWS credentials, an existing Route 53 hosted zone, and an ACM certificate in
   `us-east-1` (see [`infra/readme.md`](./infra/readme.md))
 

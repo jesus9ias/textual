@@ -28,7 +28,7 @@ avoids any cross-region reference.
 
 ## Prerequisites
 
-- Node.js 20+ and npm
+- Node.js 24+ and npm
 - AWS credentials with permission to deploy the stack (from local)
 - An existing Route 53 hosted zone for `DOMAIN_NAME`
 - An ACM certificate in `us-east-1` covering the site domain

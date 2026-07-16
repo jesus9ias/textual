@@ -13,7 +13,7 @@ Working rules for Claude Code are in [`claude.md`](./claude.md).
 
 ## Requirements
 
-- Node.js 20+ (backend runs TypeScript directly via Node's native TS execution) and npm
+- Node.js 24+ (backend runs TypeScript directly via Node's native TS execution) and npm
 - A local checkout of `blog/frontend` — the panel reads and writes its content
 
 ## How the panel points at the blog
